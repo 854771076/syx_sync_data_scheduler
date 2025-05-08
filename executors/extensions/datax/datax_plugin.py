@@ -250,20 +250,20 @@ class Reader:
                 target_not_exist.append(column)
 
         for column in columns_target:
-            if column['name'] not in [ x['name'] for x in columns_source] and column['name'] not in ['cdc_sync_date','partition_date']:
+            if column['name'] not in [ x['name'] for x in columns_source] and column['name'] !=self.task.column_config.partition_column and column['name'] !=  self.task.column_config.sync_time_column:
                 source_not_exist.append(column)
-            elif column['name'] == 'cdc_sync_date':
+            elif column['name'] == self.task.column_config.sync_time_column:
                 # 更新字段
                 self.source_columns.append({
-                    "name": 'cdc_sync_date',
+                    "name": self.task.column_config.sync_time_column,
                     "type": 'datetime', 
                     "value": "now()"
                 })
                 self.target_columns.append({
-                    "name": 'cdc_sync_date',
+                    "name": self.task.column_config.sync_time_column,
                     "type": 'timestamp',
                 })
-            elif column['name'] == 'partition_date':
+            elif column['name'] == self.task.column_config.partition_column:
                 # 分区字段
                 pass
             else:

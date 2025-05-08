@@ -159,6 +159,8 @@ class ColumnConfig(models.Model):
     exclude_columns = models.JSONField(verbose_name="排除字段列表", default=list, null=True, blank=True)
     columns=models.JSONField(verbose_name="字段列表", default=list, null=True, blank=True)
     reader_transform_columns=models.JSONField(verbose_name="reader转换字段列表", default=dict, null=True, blank=True)
+    # 同步时间字段，如果有则会自动生成同步时间字段，默认为cdc_sync_date
+    sync_time_column = models.CharField(max_length=255, null=True, blank=True, verbose_name="同步时间字段，如果有则会自动生成同步时间字段，例如cdc_sync_date", default=None)
 
 
     class Meta:
