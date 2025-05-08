@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>datax执行器</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.2.4/mermaid.min.js"></script>
+</head>
+<body>
+    <h1>datax执行器</h1>
+    <p>datax执行器是一个用于管理和执行datax任务的平台。它提供了以下功能：</p>
+    <ul>
+        <li>任务管理：创建、编辑、删除和查看任务。</li>
+        <li>数据源管理：配置和管理数据源。</li>
+        <li>配置管理：管理任务的配置参数。</li>
+        <li>任务执行：执行任务并监控任务状态。</li>
+        <li>日志管理：查看任务执行的日志。</li>
+    </ul>
+    <!-- 功能模块图 -->
+    <h3>功能模块图</h3>
+    <div class="mermaid">
+        graph TD
+        A[用户] --> B[配置管理模块]
+        B --> C[数据源管理模块]
+        B --> D[表映射管理模块]
+        B --> E[任务调度模块]
+        C --> F[MySQL连接池]
+        C --> G[Hive连接池]
+        D --> H[MySQL到Hive任务]
+        D --> I[Hive到Hive任务]
+        D --> J[MySQL到MySQL任务]
+        E --> K[任务执行引擎]
+        K --> L[DataX执行器]
+        K --> M[Spark执行器]
+        K --> N[MySQL SQL执行器]
+        L --> O[日志记录模块]
+        M --> O
+        N --> O
+        O --> P[任务状态监控模块]
+        P --> Q[任务执行状态]
+    </div>
+    <!-- 实体关系图 -->
+    <h3>实体关系图</h3>
+    <div class="mermaid">
+        erDiagram
+    TENANT ||--o{ PROJECT : "一个租户可以有多个项目"
+    PROJECT ||--o{ TASK : "一个项目可以有多个任务"
+    PROJECT ||--o{ NOTIFICATION : "一个项目可以有一个通知配置"
+    DATA_SOURCE ||--o{ CONNECTION : "一个数据源有一个连接配置"
+    TASK ||--o{ DATA_SOURCE : "一个任务关联多个数据源"
+    TASK ||--o{ SPLIT_CONFIG : "一个任务关联一个分库分表配置"
+    TASK ||--o{ COLUMN_CONFIG : "一个任务关联一个字段配置"
+    TASK ||--o{ LOG : "一个任务可以有多个日志"
+    CONFIG ||--o{ CONFIG_ITEM : "一个配置可以有多个配置项"
+
+    TENANT {
+        int id PK "主键，唯一标识租户"
+        string name "租户名称"
+        text description "租户描述"
+        datetime created_at "创建时间"
+        datetime updated_at "更新时间"
+    }
+
+    PROJECT {
+        int id PK "主键，唯一标识项目"
+        string name "项目名称"
+        text description "项目描述"
+        string engine "项目引擎"
+        json config "项目配置"
+        int tenant_id FK "关联的租户ID"
+        int notification_id FK "关联的通知配置ID"
+        datetime created_at "创建时间"
+        datetime updated_at "更新时间"
+    }
+
+    NOTIFICATION {
+        int id PK "主键，唯一标识通知配置"
+        string name "通知名称"
+        text template "模板markdown文本"
+        string engine "通知引擎"
+        json config "通知配置"
+        text description "通知描述"
+        datetime created_at "创建时间"
+        datetime updated_at "更新时间"
+    }
+
+    DATA_SOURCE {
+        int id PK "主键，唯一标识数据源"
+        string name "数据源名称"
+        string type "数据源类型"
+        text description "数据源描述"
+        datetime created_at "创建时间"
+        datetime updated_at "更新时间"
+    }
+
+    CONNECTION {
+        int id PK "主键，唯一标识连接配置"
+        int data_source_id FK "关联的数据源ID"
+        string host "主机地址"
+        int port "端口"
+        string username "用户名"
+        string password "密码"
+        string charset "字符集"
+        json params "参数"
+        datetime created_at "创建时间"
+        datetime updated_at "更新时间"
+    }
+
+    TASK {
+        int id PK "主键，唯一标识任务"
+        int project_id FK "关联的项目ID"
+        boolean is_active "是否启用"
+        string name "任务名称"
+        text description "任务描述"
+        string source_db "源数据库名称"
+        string source_table "源表名称"
+        string target_db "目标数据库名称"
+        string target_table "目标表名称"
+        boolean is_delete "是否删除"
+        int split_config_id FK "关联的分库分表配置ID"
+        int column_config_id FK "关联的字段配置ID"
+        json datax_json "DataX任务配置"
+        datetime created_at "创建时间"
+        datetime updated_at "更新时间"
+    }
+
+    SPLIT_CONFIG {
+        int id PK "主键，唯一标识分库分表配置"
+        string name "配置名称"
+        boolean db_split "是否分库"
+        boolean tb_split "是否分表"
+        int db_split_start_number "分库起始编号"
+        int db_split_end_number "分库结束编号"
+        int tb_split_start_number "分表起始编号"
+        int tb_split_end_number "分表结束编号"
+        boolean tb_other "是否有other分表"
+        boolean db_other "是否有other分库"
+        json custom_split_tb_list "自定义分表列表"
+        json custom_split_db_list "自定义分库列表"
+    }
+
+    COLUMN_CONFIG {
+        int id PK "主键，唯一标识字段配置"
+        string name "配置名称"
+        string update_column "更新字段"
+        string partition_column "分区字段"
+        json exclude_columns "排除字段列表"
+        json columns "字段列表"
+    }
+
+    LOG {
+        int id PK "主键，唯一标识日志"
+        int task_id FK "关联的任务ID"
+        string partition_date "分区日期"
+        string execute_way "执行方式"
+        string executed_state "执行状态"
+        int complit_state "完成状态"
+        datetime start_time "同步脚本启动时间"
+        datetime end_time "同步脚本结束时间"
+        datetime local_row_update_time_start "同步数据最小时间"
+        datetime local_row_update_time_end "同步数据最大时间"
+        bigint numrows "同步时间区间条数"
+        text remark "备注"
+        int db_num "完成分库数"
+        int t_num "完成分表数"
+        int t_num_0 "数据量为零的分表数"
+        int map_input_nums "拉取数量统计"
+        json datax_json "DataX任务配置"
+        datetime created_at "创建时间"
+        datetime updated_at "更新时间"
+    }
+
+
+
+
+    </div>
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+          mermaid.initialize({
+            startOnLoad: true
+          });
+        });
+      </script>
+</body>

@@ -1,0 +1,1 @@
+python3 manage.py start_scheduler
