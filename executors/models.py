@@ -1,6 +1,6 @@
 from django.db import models
 from  pathlib import Path
-
+from .extensions.datax.utils import DatabaseTableHandler
 # 租户
 class Tenant(models.Model):
     name = models.CharField(max_length=255, verbose_name="租户名称", db_index=True)
@@ -143,7 +143,8 @@ class SplitConfig(models.Model):
     db_other = models.BooleanField(default=False, verbose_name="是否有other分库")
     custom_split_tb_list = models.JSONField(verbose_name="自定义分表列表", default=list, null=True, blank=True)
     custom_split_db_list = models.JSONField(verbose_name="自定义分库列表", default=list, null=True, blank=True)
-
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="更新时间")
     class Meta:
         verbose_name = '分库分表配置'
         verbose_name_plural = verbose_name
@@ -153,16 +154,21 @@ class SplitConfig(models.Model):
 
 class ColumnConfig(models.Model):
     """字段配置模型"""
+
     name=models.CharField(max_length=255, verbose_name="配置名称", db_index=True)
-    update_column = models.CharField(max_length=255, null=True, blank=True, verbose_name="更新字段", default="create_time")
+    
     partition_column = models.CharField(max_length=255, null=True, blank=True, verbose_name="分区字段", default="partition_date")
     exclude_columns = models.JSONField(verbose_name="排除字段列表", default=list, null=True, blank=True)
     columns=models.JSONField(verbose_name="字段列表", default=list, null=True, blank=True)
     reader_transform_columns=models.JSONField(verbose_name="reader转换字段列表", default=dict, null=True, blank=True)
     # 同步时间字段，如果有则会自动生成同步时间字段，默认为cdc_sync_date
     sync_time_column = models.CharField(max_length=255, null=True, blank=True, verbose_name="同步时间字段，如果有则会自动生成同步时间字段，例如cdc_sync_date", default=None)
-
-
+    # 是否分区
+    is_partition = models.BooleanField(default=False, verbose_name="是否分区")
+    # 是否添加同步时间字段
+    is_add_sync_time = models.BooleanField(default=False, verbose_name="是否添加同步时间字段")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="更新时间")
     class Meta:
         verbose_name = '字段配置'
         verbose_name_plural = verbose_name
@@ -176,7 +182,7 @@ class Task(models.Model):
     data_target = models.ManyToManyField(DataSource, related_name='target_tasks', verbose_name="目标数据源")
     is_active = models.BooleanField(default=True, verbose_name="是否启用")
     name = models.CharField(max_length=255, verbose_name="任务名称")
-    description = models.TextField(verbose_name="任务描述")
+    description = models.TextField(verbose_name="任务描述", null=True, blank=True)
     source_db = models.CharField(max_length=255, verbose_name="源数据库名称")
     source_table = models.CharField(max_length=255, verbose_name="源表名称")
     target_db = models.CharField(max_length=255, verbose_name="目标数据库名称")
@@ -184,12 +190,15 @@ class Task(models.Model):
     is_delete = models.BooleanField(default=False, verbose_name="是否删除")
     split_config = models.ForeignKey(SplitConfig, on_delete=models.SET_NULL, verbose_name="分库分表配置", null=True, blank=True)
     column_config = models.ForeignKey(ColumnConfig, on_delete=models.SET_NULL, verbose_name="字段配置", null=True, blank=True)
+    update_column = models.CharField(max_length=255, null=True, blank=True, verbose_name="更新字段", default="create_time")
     # 启动参数配置
     config = models.JSONField(verbose_name="启动参数配置,设置jvm等", default=dict, null=True, blank=True)
     datax_json=models.JSONField(verbose_name="最新DataX任务JSON",default=dict,null=True,blank=True)
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="更新时间")
-
+    @property
+    def tables(self):
+        return DatabaseTableHandler.split(self)
     def __str__(self):
         return f"{self.name}"
 

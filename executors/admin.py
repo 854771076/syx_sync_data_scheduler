@@ -6,6 +6,7 @@ from  pathlib import Path
 from django.contrib import admin
  # 消息
 from django.contrib import messages
+from .extensions.datax.utils import DatabaseTableHandler
 admin.site.site_header = '大数据调度管理后台'  # 设置header
 admin.site.site_title = '大数据调度管理后台'   # 设置title
 admin.site.index_title = '大数据调度管理后台'
@@ -21,6 +22,15 @@ class ConnectionInline(admin.StackedInline):
 class TaskInline(admin.TabularInline):
     model = Task
     extra = 1
+# 复制数据action
+def copy_data(modeladmin, request, queryset):
+    for obj in queryset:
+        obj.id = None  # 重置主键
+        obj.save()  # 保存新对象
+        messages.success(request, f"数据 {obj.name} 已成功复制！")
+
+copy_data.short_description = "复制数据"
+
 
 # 传参数的action
 def execute_datax_tasks_generate_config_update(modeladmin, request, queryset):
@@ -123,7 +133,7 @@ class ProjectAdmin(admin.ModelAdmin):
     inlines = [TaskInline]
     ordering = ('-created_at','-updated_at')
     actions = [execute_project_tasks_datax_all,execute_project_tasks_datax_update]
-
+    actions=[copy_data]
 @admin.register(DataSource)
 class DataSourceAdmin(admin.ModelAdmin):
     list_display = ('name','username', 'type', 'created_at')
@@ -131,35 +141,41 @@ class DataSourceAdmin(admin.ModelAdmin):
     list_filter = ('type', 'created_at')
     inlines = [ConnectionInline]
     ordering = ('-created_at','-updated_at')
-
+    actions=[copy_data]
 @admin.register(Config)
 class ConfigAdmin(admin.ModelAdmin):
     list_display = ('name','description', 'created_at','updated_at')
     search_fields = ('name',)
     list_filter = ('created_at',)
     inlines = [ConfigItemInline]
+    actions=[copy_data]
 
 # 注册 SplitConfig 模型
 @admin.register(SplitConfig)
 class SplitConfigAdmin(admin.ModelAdmin):
     list_display = ('name','db_split', 'tb_split', 'tb_other', 'db_other')
     list_filter = ('name','db_split', 'tb_split')
+    actions=[copy_data]
 # 注册 ColumnConfig 模型
 @admin.register(ColumnConfig)
 class ColumnConfigAdmin(admin.ModelAdmin):
-    list_display = ('name','update_column', 'partition_column')
-    list_filter = ('name','update_column', 'partition_column')
+    list_display = ('name','is_partition','is_add_sync_time', 'partition_column','sync_time_column')
+    list_filter = ('name', 'partition_column')
+    actions=[copy_data]
 # 注册 Task 模型
 @admin.register(Task)
 class TaskAdmin(admin.ModelAdmin):
-    list_display = ('name', 'project','column_config','split_config', 'is_active', 'is_delete', 'created_at', 'updated_at')
+    list_display = ('id','name', 'project','column_config','split_config', 'is_active', 'is_delete', 'created_at', 'updated_at')
     list_filter = ('project', 'is_active', 'is_delete')
-    search_fields = ('name', 'project__name')
+    search_fields = ('id','name', 'project__name')
     filter_horizontal = ('data_source', 'data_target')
     readonly_fields = ('created_at', 'updated_at')
-    list_display_links = ('name',)
+    readonly_fields=('tables',)
+    list_display_links = ('id','name')
     ordering = ('-created_at','-updated_at')
-    actions = [execute_datax_tasks_generate_config_update,execute_datax_tasks_generate_config_all,execute_datax_tasks_execute_json]
+    actions = [copy_data,execute_datax_tasks_generate_config_update,execute_datax_tasks_generate_config_all,execute_datax_tasks_execute_json]
+    
+
 
 
 @admin.register(Log)
@@ -187,6 +203,8 @@ class TenantAdmin(admin.ModelAdmin):
     list_display = ('name', 'description', 'created_at', 'updated_at')
     search_fields = ('name',)
     list_filter = ('created_at',)
+    ordering = ('-created_at','-updated_at')
+    actions=[copy_data]
 
 #Notification
 @admin.register(Notification)
@@ -194,3 +212,4 @@ class NotificationAdmin(admin.ModelAdmin):
     list_display = ('name','engine', 'description', 'created_at', 'updated_at')
     search_fields = ('name',)
     list_filter = ('engine',)
+    actions=[copy_data]

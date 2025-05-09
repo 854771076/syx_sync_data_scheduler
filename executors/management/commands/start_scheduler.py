@@ -81,6 +81,9 @@ class Command(BaseCommand):
                 "execute_way": "update",
                 **p.config
             }
+            if not p.config.get('cron'):
+                logger.warning(f"Project {p.name} has no cron expression. Skipping.")
+                continue
             trigger = CronTrigger.from_crontab(p.config['cron'])
             scheduler.add_job(
                 execute_datax_tasks,

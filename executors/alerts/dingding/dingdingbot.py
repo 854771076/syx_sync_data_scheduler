@@ -7,12 +7,13 @@ import requests
 import json
 import sys
 import os
-from ...models import Log,Task,Notification,Project,ConfigItem
+
 from executors.alerts.base.base import BaseAlert
 
 class ding_ding_robot(BaseAlert):
 
-    def __init__(self, project: Project = None):
+    def __init__(self, project = None):
+        from ...models import Log,Task,Notification,Project,ConfigItem
         config=dict(ConfigItem.objects.all().values_list("key", "value"))
         self.timestamp = str(round(time.time() * 1000))
         self.URL = config.get('DINGDING_URL')

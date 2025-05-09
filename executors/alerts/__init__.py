@@ -1,10 +1,11 @@
 from .dingding.dingdingbot import ding_ding_robot
 from .base.base import BaseAlert
-from ..models import Log,Task,Notification,Project
+
 
 
 
 def AlertFactory(notification):
+    from ..models import Log,Task,Notification,Project
     if notification is None:
         return BaseAlert
     if notification.is_active == False:

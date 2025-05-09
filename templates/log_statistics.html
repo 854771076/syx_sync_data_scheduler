@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -13,8 +14,9 @@
             border-radius: 8px;
             padding: 20px;
             margin-bottom: 20px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
+
         .filter-form {
             margin-bottom: 20px;
             padding: 20px;
@@ -23,199 +25,268 @@
         }
     </style>
 </head>
+
 <body>
-<div class="container mt-4">
-    <h2 class="mb-4">任务日志统计</h2>
-    
-    <!-- 筛选表单 -->
-    <div class="filter-form">
-        <form id="filterForm" class="row g-3">
-            <div class="col-md-3">
-                <label for="project" class="form-label">项目</label>
-                <select class="form-select" id="project" name="project">
-                    <option value="">全部项目</option>
-                    {% for project in projects %}
-                    <option value="{{ project.name }}">{{ project.name }}</option>
-                    {% endfor %}
-                </select>
+    <div class="container mt-4">
+        <h2 class="mb-4">任务日志统计</h2>
+
+        <!-- 筛选表单 -->
+        <div class="filter-form">
+            <form id="filterForm" class="row g-3">
+                <div class="col-md-3">
+                    <label for="project" class="form-label">项目</label>
+                    <select class="form-select" id="project" name="project">
+                        <option value="">全部项目</option>
+                        {% for project in projects %}
+                        <option value="{{ project.name }}">{{ project.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label for="start_date" class="form-label">开始日期</label>
+                    <input type="date" class="form-control" id="start_date" name="start_date">
+                </div>
+                <div class="col-md-3">
+                    <label for="end_date" class="form-label">结束日期</label>
+                    <input type="date" class="form-control" id="end_date" name="end_date">
+                </div>
+                <div class="col-md-3 d-flex align-items-end">
+                    <button type="submit" class="btn btn-primary">筛选</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- 状态统计 -->
+        <div class="chart-container">
+            <h4>执行状态统计</h4>
+            <div id="statusChart" style="height: 400px;"></div>
+        </div>
+
+        <!-- 项目统计 -->
+        <div class="chart-container">
+            <h4>项目执行统计</h4>
+            <div id="projectChart" style="height: 400px;"></div>
+        </div>
+
+        <!-- 每日统计 -->
+        <div class="chart-container">
+            <h4>每日执行统计</h4>
+            <div id="dailyChart" style="height: 400px;"></div>
+        </div>
+
+        <div class="chart-container">
+            <h4>系统资源监控</h4>
+            <div id="monitorChart" style="height: 500px;">
             </div>
-            <div class="col-md-3">
-                <label for="start_date" class="form-label">开始日期</label>
-                <input type="date" class="form-control" id="start_date" name="start_date">
-            </div>
-            <div class="col-md-3">
-                <label for="end_date" class="form-label">结束日期</label>
-                <input type="date" class="form-control" id="end_date" name="end_date">
-            </div>
-            <div class="col-md-3 d-flex align-items-end">
-                <button type="submit" class="btn btn-primary">筛选</button>
-            </div>
-        </form>
+        </div>
     </div>
 
-    <!-- 状态统计 -->
-    <div class="chart-container">
-        <h4>执行状态统计</h4>
-        <div id="statusChart" style="height: 400px;"></div>
-    </div>
-    
-    <!-- 项目统计 -->
-    <div class="chart-container">
-        <h4>项目执行统计</h4>
-        <div id="projectChart" style="height: 400px;"></div>
-    </div>
-    
-    <!-- 每日统计 -->
-    <div class="chart-container">
-        <h4>每日执行统计</h4>
-        <div id="dailyChart" style="height: 400px;"></div>
-    </div>
-</div>
+    <script>
+        $(document).ready(function () {
 
-<script>
-$(document).ready(function() {
-    // 初始化筛选表单
-    const filterForm = $('#filterForm');
-    // 默认当天
-    $('#start_date').val(new Date().toISOString().split('T')[0]);
-    $('#end_date').val(new Date().toISOString().split('T')[0]);
-    
-    // 获取统计数据
-    function fetchData() {
-        const formData = filterForm.serialize();
-        $.ajax({
-            url: '/api/log-statistics/?' + formData,
-            method: 'GET',
-            success: function(response) {
-                initCharts(response);
+            // 初始化筛选表单
+            const filterForm = $('#filterForm');
+            // 默认当天
+            $('#start_date').val(new Date().toISOString().split('T')[0]);
+            $('#end_date').val(new Date().toISOString().split('T')[0]);
+
+            // 获取统计数据
+            function fetchData() {
+                const formData = filterForm.serialize();
+                $.ajax({
+                    url: '/api/log-statistics/?' + formData,
+                    method: 'GET',
+                    success: function (response) {
+                        initCharts(response);
+                    }
+                });
             }
+
+            // 表单提交事件
+            filterForm.on('submit', function (e) {
+                e.preventDefault();
+                fetchData();
+            });
+            function initMonitorCharts(initData) {
+                const chart = echarts.init(document.getElementById('monitorChart'));
+                let seriesData = [initData];
+
+                const option = {
+                    tooltip: { trigger: 'axis' },
+                    legend: { data: ['CPU使用率', '内存使用率', '磁盘使用率'] },
+                    xAxis: { type: 'time' },
+                    yAxis: [{
+                        type: 'value',
+                        name: '使用率(%)',
+                        max: 100
+                    }, {
+                        type: 'value',
+                        name: '网络流量(MB)'
+                    }],
+                    series: [
+                        {
+                            name: 'CPU使用率',
+                            type: 'line',
+                            data: seriesData.map(d => [d.timestamp, d.cpu.percent])
+                        },
+                        {
+                            name: '内存使用率',
+                            type: 'line',
+                            data: seriesData.map(d => [d.timestamp, d.memory.percent])
+                        },
+                        {
+                            name: '磁盘使用率',
+                            type: 'line',
+                            data: seriesData.map(d => [d.timestamp, d.disk.percent])
+                        }
+                    ]
+                };
+
+                // 实时更新
+                setInterval(() => {
+                    fetch('/api/system-monitor/')
+                        .then(r => r.json())
+                        .then(data => {
+                            if (!data.error) {
+                                seriesData.push(data);
+                                if (seriesData.length > 60) seriesData.shift(); // 保留1分钟数据
+
+                                option.series.forEach(s => {
+                                    s.data = seriesData.map(d => [d.timestamp, s.name === 'CPU使用率' ? d.cpu.percent :
+                                        s.name === '内存使用率' ? d.memory.percent : d.disk.percent])
+                                });
+
+                                chart.setOption(option);
+                            }
+                        });
+                }, 5000); // 5秒更新一次
+
+                chart.setOption(option);
+            }
+
+            // 初始化图表
+            function initCharts(data) {
+                // 状态统计图表
+                const statusChart = echarts.init(document.getElementById('statusChart'));
+                const statusOption = {
+                    tooltip: {
+                        trigger: 'item',
+                        formatter: '{b}: {c} ({d}%)'
+                    },
+                    legend: {
+                        top: '5%',
+                        left: 'center'
+                    },
+                    series: [{
+                        name: '执行状态',
+                        type: 'pie',
+                        radius: ['40%', '70%'],
+                        data: [
+                            { value: data.status_stats.success, name: '成功' },
+                            { value: data.status_stats.fail, name: '失败' },
+                            { value: data.status_stats.running, name: '运行中' },
+                            { value: data.status_stats.bak, name: '备份' }
+                        ]
+                    }]
+                };
+                statusChart.setOption(statusOption);
+
+                // 项目统计图表
+                const projectChart = echarts.init(document.getElementById('projectChart'));
+                const projectOption = {
+                    tooltip: {
+                        trigger: 'axis',
+                        axisPointer: {
+                            type: 'shadow'
+                        }
+                    },
+                    legend: {
+                        data: ['成功', '失败', '执行中', '备份', '平均时间']
+                    },
+                    xAxis: {
+                        type: 'category',
+                        data: data.project_stats.map(item => item.task__project__name)
+                    },
+                    yAxis: [{
+                        type: 'value',
+                        name: '数量'
+                    }, {
+                        type: 'value',
+                        name: '平均时间(s)'
+                    }],
+                    series: [
+                        {
+                            name: '成功',
+                            type: 'bar',
+                            data: data.project_stats.map(item => item.success)
+                        },
+                        {
+                            name: '失败',
+                            type: 'bar',
+                            data: data.project_stats.map(item => item.fail)
+                        },
+                        {
+                            name: '执行中',
+                            type: 'bar',
+                            data: data.project_stats.map(item => item.running)
+                        },
+                        {
+                            name: '备份',
+                            type: 'bar',
+                            data: data.project_stats.map(item => item.bak)
+                        },
+                        {
+                            name: '平均时间',
+                            type: 'line',
+                            yAxisIndex: 1,
+                            data: data.project_stats.map(item => item.avg_time)
+                        }
+                    ]
+                };
+                projectChart.setOption(projectOption);
+
+                // 每日统计图表
+                const dailyChart = echarts.init(document.getElementById('dailyChart'));
+                const dailyOption = {
+                    tooltip: {
+                        trigger: 'axis'
+                    },
+                    xAxis: {
+                        type: 'category',
+                        data: data.daily_stats.map(item => item.day)
+                    },
+                    yAxis: [{
+                        type: 'value',
+                        name: '数量'
+                    }, {
+                        type: 'value',
+                        name: '平均时间(s)'
+                    }],
+                    series: [
+                        {
+                            name: '执行次数',
+                            type: 'line',
+                            data: data.daily_stats.map(item => item.count)
+                        },
+                        {
+                            name: '平均时间',
+                            type: 'line',
+                            yAxisIndex: 1,
+                            data: data.daily_stats.map(item => item.avg_time)
+                        }
+                    ]
+                };
+                dailyChart.setOption(dailyOption);
+                
+            }
+            initMonitorCharts({{ monitor_data|safe }}); 
+            // 首次加载数据
+            fetchData();
+            setInterval(fetchData, 10000); 
+
+
         });
-    }
-
-    // 表单提交事件
-    filterForm.on('submit', function(e) {
-        e.preventDefault();
-        fetchData();
-    });
-
-    // 初始化图表
-    function initCharts(data) {
-        // 状态统计图表
-        const statusChart = echarts.init(document.getElementById('statusChart'));
-        const statusOption = {
-            tooltip: {
-                trigger: 'item',
-                formatter: '{b}: {c} ({d}%)'
-            },
-            legend: {
-                top: '5%',
-                left: 'center'
-            },
-            series: [{
-                name: '执行状态',
-                type: 'pie',
-                radius: ['40%', '70%'],
-                data: [
-                    {value: data.status_stats.success, name: '成功'},
-                    {value: data.status_stats.fail, name: '失败'},
-                    {value: data.status_stats.running, name: '运行中'},
-                    {value: data.status_stats.bak, name: '备份'}
-                ]
-            }]
-        };
-        statusChart.setOption(statusOption);
-
-        // 项目统计图表
-        const projectChart = echarts.init(document.getElementById('projectChart'));
-        const projectOption = {
-            tooltip: {
-                trigger: 'axis',
-                axisPointer: {
-                    type: 'shadow'
-                }
-            },
-            legend: {
-                data: ['成功', '失败','执行中','备份', '平均时间']
-            },
-            xAxis: {
-                type: 'category',
-                data: data.project_stats.map(item => item.task__project__name)
-            },
-            yAxis: [{
-                type: 'value',
-                name: '数量'
-            }, {
-                type: 'value',
-                name: '平均时间(s)'
-            }],
-            series: [
-                {
-                    name: '成功',
-                    type: 'bar',
-                    data: data.project_stats.map(item => item.success)
-                },
-                {
-                    name: '失败',
-                    type: 'bar',
-                    data: data.project_stats.map(item => item.fail)
-                },
-                {
-                    name: '执行中',
-                    type: 'bar',
-                    data: data.project_stats.map(item => item.running)
-                },
-                {
-                    name: '备份',
-                    type: 'bar',
-                    data: data.project_stats.map(item => item.bak)
-                },
-                {
-                    name: '平均时间',
-                    type: 'line',
-                    yAxisIndex: 1,
-                    data: data.project_stats.map(item => item.avg_time)
-                }
-            ]
-        };
-        projectChart.setOption(projectOption);
-
-        // 每日统计图表
-        const dailyChart = echarts.init(document.getElementById('dailyChart'));
-        const dailyOption = {
-            tooltip: {
-                trigger: 'axis'
-            },
-            xAxis: {
-                type: 'category',
-                data: data.daily_stats.map(item => item.day)
-            },
-            yAxis: [{
-                type: 'value',
-                name: '数量'
-            }, {
-                type: 'value',
-                name: '平均时间(s)'
-            }],
-            series: [
-                {
-                    name: '执行次数',
-                    type: 'line',
-                    data: data.daily_stats.map(item => item.count)
-                },
-                {
-                    name: '平均时间',
-                    type: 'line',
-                    yAxisIndex: 1,
-                    data: data.daily_stats.map(item => item.avg_time)
-                }
-            ]
-        };
-        dailyChart.setOption(dailyOption);
-    }
-
-    // 首次加载数据
-    fetchData();
-});
-</script>
+    </script>
 </body>
+
 </html>

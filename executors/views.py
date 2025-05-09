@@ -14,6 +14,9 @@ from django.db.models import Q, Avg, F
 from datetime import datetime, timedelta
 import os
 from dotenv import load_dotenv
+# ... 原有导入保持不变...
+import psutil
+from datetime import datetime
 # 加载 .env 文件中的环境变量
 load_dotenv()
 
@@ -25,6 +28,41 @@ scheduler = BackgroundScheduler({
 })
 scheduler.add_jobstore(DjangoJobStore(), "default")
 scheduler.start()
+
+
+class SystemMonitorAPI(APIView):
+    def get(self, request):
+        try:
+            # 获取系统性能数据
+            cpu_percent = psutil.cpu_percent(interval=1)
+            mem = psutil.virtual_memory()
+            disk = psutil.disk_usage('/')
+            net_io = psutil.net_io_counters()
+            
+            data = {
+                "timestamp": datetime.now().isoformat(),
+                "cpu": {
+                    "percent": cpu_percent,
+                    "cores": psutil.cpu_count(logical=False)
+                },
+                "memory": {
+                    "total": mem.total,
+                    "used": mem.used,
+                    "percent": mem.percent
+                },
+                "disk": {
+                    "total": disk.total,
+                    "used": disk.used,
+                    "percent": disk.percent
+                },
+                "network": {
+                    "sent": net_io.bytes_sent,
+                    "recv": net_io.bytes_recv
+                }
+            }
+            return Response(data)
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
 
 class LogStatisticsAPI(APIView):
     def get(self, request):
@@ -68,7 +106,7 @@ class LogStatisticsAPI(APIView):
 
         # 每日统计
         daily_stats = Log.objects.filter(filters).extra(
-            select={'day': 'DATE(executors_log.created_at)'}
+            select={'day': 'DATE(executors_log.updated_at)'}
         ).values('day').annotate(
             count=Count('id'),
             avg_time=Avg(F('end_time') - F('start_time'))
@@ -100,7 +138,11 @@ class LogStatisticsAPI(APIView):
 def log_statistics(request):
     from .models import Project
     projects = Project.objects.all()
-    return render(request, 'log_statistics.html', {'projects': projects})
+    monitor_data =SystemMonitorAPI().get(request).data
+    return render(request, 'log_statistics.html',  {
+        'projects': projects,
+        'monitor_data': monitor_data
+    })
 
 # 重定向admin路由
 def redirect_to_admin(request):

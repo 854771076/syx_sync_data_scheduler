@@ -1,4 +1,4 @@
-from ...models import Task,ConfigItem,Log,DataSource
+
 from pyhive import hive
 import pyhdfs
 import re
@@ -13,73 +13,71 @@ from django.utils import timezone
 class DatabaseTableHandler:
 
     @staticmethod
-    def split(task:Task):
+    def split(task):
         # 单库单表
         tables=[]
         format_name=task.source_db + '.' + task.source_table
         # 自定义的分库分表
+        
+        if not task.split_config.db_split and not task.split_config.tb_split:
+            tables.append(format_name)
+            return tables
+        # 单库多表
+        elif not task.split_config.db_split and task.split_config.tb_split:
+            '''
+            程序自动添加表下标并且依次遍历分表
+            '''
+            assert task.split_config.tb_split_start_number <= task.split_config.tb_split_end_number, 'tb_split_start_number must be less than tb_split_end_number'
+            # 检查tb_split_start_number，tb_split_end_number是否有值
+            if task.split_config.tb_split_start_number is  None or task.split_config.tb_split_end_number is  None:
+                raise ValueError('tb_split_start_number or tb_split_end_number is None')
+            for i in range(task.split_config.tb_split_start_number, task.split_config.tb_split_end_number + 1):
+                tables.append(format_name + f'_{i}')
+            if task.split_config.tb_other:
+                tables.append(format_name + '_other')
+        # 多库多表
+        elif task.split_config.db_split and task.split_config.tb_split:
+            '''
+            程序自动添加库和表下标并且依次遍历分表
+            '''
+            assert task.split_config.db_split_start_number <= task.split_config.db_split_end_number, 'db_split_start_number must be less than db_split_end_number'
+            # 检查db_split_start_number，db_split_end_number是否有值
+            if task.split_config.db_split_start_number is None or task.split_config.db_split_end_number is  None:
+                raise ValueError('db_split_start_number or db_split_end_number is None')
+            assert task.split_config.tb_split_start_number <= task.split_config.tb_split_end_number, 'tb_split_start_number must be less than tb_split_end_number'
+            # 检查tb_split_start_number，tb_split_end_number是否有值
+            if task.split_config.tb_split_start_number is  None or task.split_config.tb_split_end_number is  None:
+                raise ValueError('tb_split_start_number or tb_split_end_number is None')
+            for i in range(task.split_config.db_split_start_number,task.split_config.db_split_end_number + 1):
+                for j in range(task.split_config.tb_split_start_number, task.split_config.tb_split_end_number + 1):
+                    tables.append(f'{task.source_db}_{i}.{task.source_table}_{j}')
+                    if task.split_config.tb_other:
+                        tables.append(f'{task.source_db}_{i}.{task.source_table}_other')
+            if task.split_config.db_other:
+                for j in range(task.split_config.tb_split_start_number, task.split_config.tb_split_end_number + 1):
+                    tables.append(f'{task.source_db}_other.{task.source_table}_{j}')
+                    if task.split_config.tb_other:
+                        tables.append(f'{task.source_db}_other.{task.source_table}_other')      
+                        
+        else:
+            raise ValueError('db_split and tb_split must be True or False')
         if task.split_config.custom_split_db_list and task.split_config.custom_split_db_list:
             for db in task.split_config.custom_split_db_list:
                 for tb in task.split_config.custom_split_tb_list:
                     tables.append(db + '.' + tb)
-            return tables
-        elif task.split_config.custom_split_db_list and not task.split_config.custom_split_tb_list:
+        if task.split_config.custom_split_db_list and not task.split_config.custom_split_tb_list:
             for db in task.split_config.custom_split_db_list:
                 tables.append(db + '.' + task.source_table)
-            return tables
-        elif not task.split_config.custom_split_db_list and task.split_config.custom_split_tb_list:
+        if not task.split_config.custom_split_db_list and task.split_config.custom_split_tb_list:
             for tb in task.split_config.custom_split_tb_list:
                 tables.append(task.source_db + '.' + tb)
-            return tables
-        else:
-            if not task.split_config.db_split and not task.split_config.tb_split:
-                tables.append(format_name)
-                return tables
-            # 单库多表
-            elif not task.split_config.db_split and task.split_config.tb_split:
-                '''
-                程序自动添加表下标并且依次遍历分表
-                '''
-                assert task.split_config.tb_split_start_number <= task.split_config.tb_split_end_number, 'tb_split_start_number must be less than tb_split_end_number'
-                # 检查tb_split_start_number，tb_split_end_number是否有值
-                if task.split_config.tb_split_start_number is  None or task.split_config.tb_split_end_number is  None:
-                    raise ValueError('tb_split_start_number or tb_split_end_number is None')
-                for i in range(task.split_config.tb_split_start_number, task.split_config.tb_split_end_number + 1):
-                    tables.append(format_name + f'_{i}')
-                if task.split_config.tb_other:
-                    tables.append(format_name + '_other')
-                return tables
-            # 多库多表
-            elif task.split_config.db_split and task.split_config.tb_split:
-                '''
-                程序自动添加库和表下标并且依次遍历分表
-                '''
-                assert task.split_config.db_split_start_number <= task.split_config.db_split_end_number, 'db_split_start_number must be less than db_split_end_number'
-                # 检查db_split_start_number，db_split_end_number是否有值
-                if not task.split_config.db_split_start_number or not task.split_config.db_split_end_number:
-                    raise ValueError('db_split_start_number or db_split_end_number is None')
-                assert task.split_config.tb_split_start_number <= task.split_config.tb_split_end_number, 'tb_split_start_number must be less than tb_split_end_number'
-                # 检查tb_split_start_number，tb_split_end_number是否有值
-                if not task.split_config.tb_split_start_number or not task.split_config.tb_split_end_number:
-                    raise ValueError('tb_split_start_number or tb_split_end_number is None')
-                for i in range(task.split_config.db_split_start_number,task.split_config.db_split_end_number + 1):
-                    for j in range(task.split_config.tb_split_start_number, task.split_config.tb_split_end_number + 1):
-                        tables.append(f'{task.target_db}_{i}.{task.split_config.target_table}_{j}')
-                        if task.split_config.tb_other:
-                            tables.append(f'{task.target_db}_{i}.{task.split_config.target_table}_other')
-                if task.split_config.db_other:
-                    for j in range(task.split_config.tb_split_start_number, task.split_config.tb_split_end_number + 1):
-                        tables.append(f'{task.split_config.target_db}_other.{task.split_config.target_table}_{j}')
-                        if task.split_config.tb_other:
-                            tables.append(f'{task.target_db}_other.{task.target_table}_other')                
-            else:
-                raise ValueError('db_split and tb_split must be True or False')
+        return tables 
 
 # Hive工具类
 class HiveUtil:    
     # 通过全局配置获取hive连接
     @staticmethod
-    def get_hive_client_by_config(config,datasource:DataSource):
+    def get_hive_client_by_config(config,datasource):
         hive_host=config.get("HIVE_HOST")
         hive_port=int(config.get("HIVE_PORT",10000))
         hive_user=datasource.connection.username
@@ -169,7 +167,7 @@ class HiveUtil:
 # Hdfs工具类
 class HdfsUtil:
     @staticmethod
-    def get_hdfs_client_by_config(config,datasource:DataSource):
+    def get_hdfs_client_by_config(config,datasource):
         HadoopClient=datasource.connection.params.get('HadoopClient')
         username=datasource.connection.username
         if username:
@@ -209,7 +207,7 @@ class HdfsUtil:
         else:
             path=f'/user/hive/warehouse/{database_name}.db/{table_name}/*'
         # 删除hdfs目录下的文件
-        HdfsUtil.delete_file(hdfs_client, path,recursive=True)
+        HdfsUtil.delete_file(hdfs_client, path,recursive=False)
         logger.debug(f"Deleted hive table: {database_name}.{table_name}, partition: {partition}")
 
         
@@ -234,7 +232,7 @@ class HdfsUtil:
 # Mysql工具类
 class MysqlUtil:
     @staticmethod
-    def get_mysql_client_by_config(datasource:DataSource):
+    def get_mysql_client_by_config(datasource):
         mysql_host=datasource.connection.host
         mysql_port=datasource.connection.port
         mysql_user=datasource.connection.username
@@ -297,6 +295,7 @@ class DataxUtil:
         }
     @staticmethod
     def execute_datax(cls,retry=False):
+        from ...models import Task,ConfigItem,Log,DataSource
         """
         执行 DataX 任务。
         """
