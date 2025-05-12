@@ -135,12 +135,23 @@ class SplitConfig(models.Model):
     name = models.CharField(max_length=255, verbose_name="配置名称", db_index=True)
     db_split = models.BooleanField(default=False, verbose_name="是否分库")
     tb_split = models.BooleanField(default=False, verbose_name="是否分表")
+    tb_other = models.BooleanField(default=False, verbose_name="是否有other分表")
+    db_other = models.BooleanField(default=False, verbose_name="是否有other分库")
+    # 是否时间后缀分表
+    tb_time_suffix = models.BooleanField(default=False, verbose_name="是否时间后缀分表")
+    # 时间后缀格式
+    tb_time_suffix_format = models.CharField(max_length=255, verbose_name="时间分表后缀格式", default="%Y%m%d", null=True, blank=True)
+    # 开始时间
+    tb_time_suffix_start_time = models.DateField(verbose_name="开始分表时间", null=True, blank=True)
+    # 结束时间
+    tb_time_suffix_end_time = models.DateField(verbose_name="结束分表时间", null=True, blank=True)
+    # 时间更新频率
+    tb_time_suffix_update_frequency = models.IntegerField(verbose_name="时间分表更新频率(天)", default=1, null=True, blank=True)
     db_split_start_number = models.IntegerField(null=True, blank=True, verbose_name="分库起始编号")
     db_split_end_number = models.IntegerField(null=True, blank=True, verbose_name="分库结束编号")
     tb_split_start_number = models.IntegerField(null=True, blank=True, verbose_name="分表起始编号")
     tb_split_end_number = models.IntegerField(null=True, blank=True, verbose_name="分表结束编号")
-    tb_other = models.BooleanField(default=False, verbose_name="是否有other分表")
-    db_other = models.BooleanField(default=False, verbose_name="是否有other分库")
+    
     custom_split_tb_list = models.JSONField(verbose_name="自定义分表列表", default=list, null=True, blank=True)
     custom_split_db_list = models.JSONField(verbose_name="自定义分库列表", default=list, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
@@ -197,8 +208,16 @@ class Task(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="更新时间")
     @property
-    def tables(self):
+    def tables_update(self):
+        return DatabaseTableHandler.split(self,execute_way="update")
+    tables_update.fget.short_description = "分库分表列表（增量）"
+    @property
+    def tables_all(self):
         return DatabaseTableHandler.split(self)
+    tables_all.fget.short_description = "分库分表列表（全量）"
+    
+
+    
     def __str__(self):
         return f"{self.name}"
 
@@ -277,3 +296,6 @@ class Log(models.Model):
         verbose_name = '执行日志'
         verbose_name_plural = verbose_name
         unique_together = ('task', 'execute_way', 'complit_state','partition_date')
+
+
+# 元数据管理模块

@@ -170,7 +170,7 @@ class TaskAdmin(admin.ModelAdmin):
     search_fields = ('id','name', 'project__name')
     filter_horizontal = ('data_source', 'data_target')
     readonly_fields = ('created_at', 'updated_at')
-    readonly_fields=('tables',)
+    readonly_fields=('tables_update','tables_all',)
     list_display_links = ('id','name')
     ordering = ('-created_at','-updated_at')
     actions = [copy_data,execute_datax_tasks_generate_config_update,execute_datax_tasks_generate_config_all,execute_datax_tasks_execute_json]

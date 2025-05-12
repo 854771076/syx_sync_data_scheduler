@@ -11,14 +11,37 @@ from threading import Thread,Lock
 from django.utils import timezone
 # 库表处理逻辑类
 class DatabaseTableHandler:
-
     @staticmethod
-    def split(task):
+    def get_time_list(start,end,format):
+        '''
+        生成时间列表
+        '''
+
+        date_list = []
+        while start < end:
+            date_list.append(start.strftime(format))
+            start += timezone.timedelta(days=1)
+        return date_list
+    @staticmethod
+    def split(task,execute_way='all'):
         # 单库单表
         tables=[]
         format_name=task.source_db + '.' + task.source_table
-        # 自定义的分库分表
-        
+        if task.split_config.tb_time_suffix:
+            # tb_time_suffix_format
+            assert task.split_config.tb_time_suffix_format is not None, 'tb_time_suffix_format is None'
+            # tb_time_suffix_start_time
+            assert task.split_config.tb_time_suffix_start_time is not None, 'tb_time_suffix_start_time is None'
+            # tb_time_suffix_end_time
+            assert task.split_config.tb_time_suffix_end_time is not None, 'tb_time_suffix_end_time is None'
+            if execute_way=='all':
+                time_list=DatabaseTableHandler.get_time_list(task.split_config.tb_time_suffix_start_time,task.split_config.tb_time_suffix_end_time,task.split_config.tb_time_suffix_format)
+            else:
+                assert task.split_config.tb_time_suffix_update_frequency is not None, 'tb_time_suffix_update_frequency is None'
+                time_list=DatabaseTableHandler.get_time_list(timezone.now().date()-timezone.timedelta(days=task.split_config.tb_time_suffix_update_frequency),timezone.now().date(),task.split_config.tb_time_suffix_format)
+            for time in time_list:
+                tables.append(format_name + '_' + time)
+            return tables
         if not task.split_config.db_split and not task.split_config.tb_split:
             tables.append(format_name)
             return tables
@@ -61,6 +84,7 @@ class DatabaseTableHandler:
                         
         else:
             raise ValueError('db_split and tb_split must be True or False')
+        # 自定义的分库分表
         if task.split_config.custom_split_db_list and task.split_config.custom_split_db_list:
             for db in task.split_config.custom_split_db_list:
                 for tb in task.split_config.custom_split_tb_list:

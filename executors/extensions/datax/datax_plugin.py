@@ -223,7 +223,8 @@ class Reader:
         """mysql2hive 生成reader逻辑"""
         assert self.source.type == "mysql", f"[datax_plugin]:task {self.task.id} source type must be mysql"
         assert self.target.type == "hdfs", f"[datax_plugin]:task {self.task.id} target type must be hdfs"
-        tables=DatabaseTableHandler.split(self.task)
+        tables=DatabaseTableHandler.split(self.task,self.settings.get('execute_way'))
+            
         # 排除配置不需要的字段
         if not self.task.column_config.columns:
             source_db,source_table=tables[0].split(".")
