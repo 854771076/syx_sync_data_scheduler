@@ -1,11 +1,10 @@
 import json
 import subprocess
 from pathlib import Path
-
 from typing import Union,List,Dict,Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime,timedelta,date
-from .utils import DatabaseTableHandler,HiveUtil,HdfsUtil,DataxUtil,DataxTypes,MysqlUtil
+from ..metadata.utils import DatabaseTableHandler,HiveUtil,HdfsUtil,DataxUtil,DataxTypes,MysqlUtil
 from loguru import logger
 from executors.alerts import AlertFactory
 
@@ -86,8 +85,8 @@ class DataXPlugin:
         self.config = config
         self.settings=settings
         self.jvm_options = self.task.config.get('jvm_options',settings.get("jvm_options", self.config.get("DATAX_JVM_OPTIONS", "")))
-        self.source = self.task.data_source.first()
-        self.target = self.task.data_target.first()
+        self.source = self.task.data_source
+        self.target = self.task.data_target
         self.hive:HiveUtil = None
         self.hdfs:HdfsUtil = None
         self.mysql:MysqlUtil = None
@@ -102,8 +101,6 @@ class DataXPlugin:
             logger.exception(e)
     def _validate_config(self):
         """验证配置"""
-        assert self.task.data_source.count() == 1, f"[datax_plugin]:task {self.task.id} must have one data source"
-        assert self.task.data_target.count() == 1, f"[datax_plugin]:task {self.task.id} must have one data target"
         if self.source.type == "mysql" and self.target.type == "hdfs":
             # settings必须有分区时间，执行方式
             assert self.settings.get("partition_date"), f"[datax_plugin]:execute_way is update,partition_date is required"
@@ -128,7 +125,7 @@ class DataXPlugin:
             assert False, f"[datax_plugin]:不支持的数据源类型[{self.source.type}]"
     def _exclude_column(self,columns:list):
         """排除列"""
-        exclude_column=list(filter(lambda x:x not in self.task.column_config.exclude_columns,columns))
+        exclude_column=list(filter(lambda x:x not in self.task.exclude_columns,columns))
         return exclude_column
 
     def _get_writer_config(self):
@@ -191,8 +188,8 @@ class DataXPlugin:
     # 预执行
     def pre_execute(self):
         """预执行"""
-        if self.task.column_config.is_partition:
-            HiveUtil.add_partition(self.hive,self.task.target_db,self.task.target_table,self.task.column_config.partition_column,self.settings.get('partition_date'))
+        if self.task.is_partition:
+            HiveUtil.add_partition(self.hive,self.task.target_db,self.task.target_table,self.task.partition_column,self.settings.get('partition_date'))
         return True
     def execute(self):
         """执行DataX任务"""
@@ -219,47 +216,54 @@ class DataXPlugin:
    
 class Reader:
     @staticmethod
-    def mysql2hive(self:DataXPlugin):
-        """mysql2hive 生成reader逻辑"""
-        assert self.source.type == "mysql", f"[datax_plugin]:task {self.task.id} source type must be mysql"
-        assert self.target.type == "hdfs", f"[datax_plugin]:task {self.task.id} target type must be hdfs"
-        tables=DatabaseTableHandler.split(self.task,self.settings.get('execute_way'))
-            
+    def get_columns(self:DataXPlugin):
+        from ...models import MetadataTable,_sync_single_metadata
+        tables=DatabaseTableHandler.split(self.task,self.settings.get('execute_way')) 
         # 排除配置不需要的字段
-        if not self.task.column_config.columns:
-            source_db,source_table=tables[0].split(".")
-            columns_source=MysqlUtil.get_table_schema(self.mysql,source_db,source_table)
+        if not self.task.columns:
+            Metadata=MetadataTable.objects.filter(name=self.task.source_table,db_name=self.task.source_db).first()
+            if not Metadata:
+                columns_source=_sync_single_metadata(self.task.data_source,self.task.source_db,self.task.source_table,self.config,tables)
+            else:
+                columns_source=Metadata.meta_data
             columns_source=self._exclude_column(columns_source)
         else:
-            columns_source=self._exclude_column(self.task.column_config.columns)
+            columns_source=self._exclude_column(self.task.columns)
 
         # 映射配置的字段
-        if self.task.column_config.reader_transform_columns:
-            columns_source=self._transform_columns(columns_source,self.task.column_config.reader_transform_columns)
+        if self.task.reader_transform_columns:
+            columns_source=self._transform_columns(columns_source,self.task.reader_transform_columns)
         
         source_not_exist=[]
         target_not_exist=[]
-        columns_target=HiveUtil.get_table_schema(self.hive,self.task.target_db,self.task.target_table)
+        Metadata_target=MetadataTable.objects.filter(name=self.task.target_table,db_name=self.task.target_db).first()
+        if not Metadata_target:
+            columns_target=_sync_single_metadata(self.task.data_target,self.task.target_db,self.task.target_table,self.config)
+        else:
+            columns_target=Metadata_target.meta_data
+        # 转小写
+        columns_target=[{k.lower():v.lower() for k,v in i.items()} for i in columns_target]
+        columns_source=[{k.lower():v.lower() for k,v in i.items()} for i in columns_source]
         # 遍历columns_source,如果columns_source中的列在columns_target中不存在，则将其添加到target_not_exist中
         for column in columns_source:
             if column['name'] not in [x['name'] for x in columns_target]:
                 target_not_exist.append(column)
 
         for column in columns_target:
-            if column['name'] not in [ x['name'] for x in columns_source] and column['name'] !=self.task.column_config.partition_column and column['name'] !=  self.task.column_config.sync_time_column:
+            if column['name'] not in [ x['name'] for x in columns_source] and column['name'] !=self.task.partition_column and column['name'] !=  self.task.sync_time_column:
                 source_not_exist.append(column)
-            elif column['name'] == self.task.column_config.sync_time_column and self.task.column_config.is_add_sync_time:
+            elif column['name'] == self.task.sync_time_column and self.task.is_add_sync_time:
                 # 更新字段
                 self.source_columns.append({
-                    "name": self.task.column_config.sync_time_column,
+                    "name": self.task.sync_time_column,
                     "type": 'datetime', 
                     "value": "now()"
                 })
                 self.target_columns.append({
-                    "name": self.task.column_config.sync_time_column,
+                    "name": self.task.sync_time_column,
                     "type": 'timestamp',
                 })
-            elif column['name'] == self.task.column_config.partition_column and self.task.column_config.is_partition:
+            elif column['name'] == self.task.partition_column and self.task.is_partition:
                 # 分区字段
                 pass
             else:
@@ -285,6 +289,14 @@ class Reader:
             logger.warning(f"[datax_plugin]:task {self.task.id} target table {self.task.target_table} not exist columns {target_not_exist}")
             msg=f"[datax_plugin]:task {self.task.id} target table {self.task.target_table} not exist columns \n\n {target_not_exist}"
             self.alert.send_custom_message(msg)
+        return source_columns_format,tables
+    @staticmethod
+    def mysql2hive(self:DataXPlugin):
+        
+        """mysql2hive 生成reader逻辑"""
+        assert self.source.type == "mysql", f"[datax_plugin]:task {self.task.id} source type must be mysql"
+        assert self.target.type == "hdfs", f"[datax_plugin]:task {self.task.id} target type must be hdfs"
+        source_columns_format,tables=Reader.get_columns(self)
         if not self.target_columns:
             assert False, f"[datax_plugin]:task {self.task.id} source table {self.task.source_table} and target table {self.task.target_table} columns not match"
         if self.settings.get('execute_way') == 'all':
@@ -295,7 +307,7 @@ class Reader:
             where = f"{self.task.update_column} between '{self.settings.get('start_time')}' and '{self.settings.get('end_time')}'"
         else:
             assert False, f"[datax_plugin]:不支持的执行方式[{self.settings.get('execute_way')}]"
-        if self.task.update_column and self.task.column_config.partition_column:
+        if self.task.update_column and self.task.partition_column:
             querySql= [
                 f"select {source_columns_format} from {i} where {where}" for i in tables]
         else:
@@ -318,70 +330,11 @@ class Reader:
         }
         return reader_config
     def mysql2mysql(self:DataXPlugin):
+        from ...models import MetadataTable,_sync_single_metadata
         """mysql2mysql 生成reader逻辑"""
         assert self.source.type == "mysql", f"[datax_plugin]:task {self.task.id} source type must be mysql"
         assert self.target.type == "mysql", f"[datax_plugin]:task {self.task.id} target type must be mysql"
-        tables=DatabaseTableHandler.split(self.task)
-        # 排除配置不需要的字段
-        if not self.task.column_config.columns:
-            columns_source=MysqlUtil.get_table_schema(self.mysql,self.task.source_db,tables[0])
-            columns_source=self._exclude_column(columns_source)
-        else:
-            columns_source=self._exclude_column(self.task.column_config.columns)
-
-        # 映射配置的字段
-        if self.task.column_config.reader_transform_columns:
-            columns_source=self._transform_columns(columns_source,self.task.column_config.reader_transform_columns)
-        
-        source_not_exist=[]
-        target_not_exist=[]
-        # TODO 只支持MYSQL多到一
-        columns_target=MysqlUtil.get_table_schema(self.mysql,self.task.target_db,self.task.target_table)
-        # 遍历columns_source,如果columns_source中的列在columns_target中不存在，则将其添加到target_not_exist中
-        for column in columns_source:
-            if column['name'] not in [x['name'] for x in columns_target]:
-                target_not_exist.append(column)
-
-        for column in columns_target:
-            if column['name'] not in [ x['name'] for x in columns_source] and column['name'] !=self.task.column_config.partition_column and column['name'] !=  self.task.column_config.sync_time_column:
-                source_not_exist.append(column)
-            elif column['name'] == self.task.column_config.sync_time_column:
-                # 更新字段
-                self.source_columns.append({
-                    "name": self.task.column_config.sync_time_column,
-                    "type": 'datetime', 
-                    "value": "now()"
-                })
-                self.target_columns.append({
-                    "name": self.task.column_config.sync_time_column,
-                    "type": 'timestamp',
-                })
-            elif column['name'] == self.task.column_config.partition_column:
-                # 分区字段
-                pass
-            else:
-                # 共有字段
-                format_column=DataxTypes.format_type(column['type'])
-                datax_type=DataxTypes.hive_to_datax(column['type'])
-                mysql_type=DataxTypes.datax_to_mysql(datax_type)
-                self.target_columns.append({
-                    "name": column['name'],
-                    "type": format_column,
-                })
-                self.source_columns.append({
-                    "name": column['name'],
-                    "type": mysql_type, 
-                })
-        source_columns_format=DataxTypes.format_reader_schema(self.source_columns)
-        # 如果source_not_exist和target_not_exist 不为空，则发送警告日志
-        if source_not_exist:
-            logger.warning(f"[datax_plugin]:task {self.task.id} source table {self.task.source_table} not exist columns {source_not_exist}")
-            msg=f"[datax_plugin]:task {self.task.id} source table {self.task.source_table} not exist columns {source_not_exist}"
-            self.alert.send_custom_message(msg)
-        if target_not_exist:
-            logger.warning(f"[datax_plugin]:task {self.task.id} target table {self.task.target_table} not exist columns {target_not_exist}")
-            msg=f"[datax_plugin]:task {self.task.id} target table {self.task.target_table} not exist columns {target_not_exist}"
-            self.alert.send_custom_message(msg)
+        source_columns_format,tables=Reader.get_columns(self)
         if not self.target_columns:
             assert False, f"[datax_plugin]:task {self.task.id} source table {self.task.source_table} and target table {self.task.target_table} columns not match"
         if self.settings.get('execute_way') == 'all':
@@ -392,7 +345,7 @@ class Reader:
             where = f"{self.task.update_column} between '{self.settings.get('start_time')}' and '{self.settings.get('end_time')}'"
         else:
             assert False, f"[datax_plugin]:不支持的执行方式[{self.settings.get('execute_way')}]"
-        if self.task.update_column and self.task.column_config.partition_column:
+        if self.task.update_column and self.task.partition_column:
             querySql= [
                 f"select {source_columns_format} from {i} where {where}" for i in tables]
         else:
@@ -414,22 +367,13 @@ class Reader:
             }
         }
         return reader_config
+    
+    
 class Writer:
     @staticmethod
     def other2hive(self:DataXPlugin):
         """other2hive"""
         assert self.target.type == "hdfs", f"[datax_plugin]:task {self.task.id} target type must be hdfs"
-        # TODO 代码删除hdfs数据有问题，删除成功但文件还在
-        # if self.task.column_config.partition_column:
-        #     # 创建分区
-        #     HiveUtil.add_partition(self.hive,self.task.target_db,self.task.target_table,self.task.column_config.partition_column,self.settings.get('partition_date'))
-        #     if self.task.is_delete:
-        #         # 删除分区数据
-        #         HdfsUtil.drop_hive_table(self.hdfs,self.task.target_db,self.task.target_table,self.task.column_config.partition_column,self.settings.get('partition_date'))
-        # else:
-        #     if self.task.is_delete:
-        #         # 删除表数据
-        #         HdfsUtil.drop_hive_table(self.hdfs,self.task.target_db,self.task.target_table)
         if self.task.is_delete:
             self.mode='truncate'
         else:
@@ -448,8 +392,8 @@ class Writer:
                 "fieldDelimiter": "\u0001",
             }
         }
-        if self.task.column_config.partition_column:
-            writer_config["parameter"]["path"] = f"/user/hive/warehouse/{self.task.target_db}.db/{self.task.target_table}/{self.task.column_config.partition_column}={self.settings.get('partition_date')}"
+        if self.task.partition_column:
+            writer_config["parameter"]["path"] = f"/user/hive/warehouse/{self.task.target_db}.db/{self.task.target_table}/{self.task.partition_column}={self.settings.get('partition_date')}"
         else:
             writer_config["parameter"]["path"] = f"/user/hive/warehouse/{self.task.target_db}.db/{self.task.target_table}"
         return writer_config

@@ -1,6 +1,6 @@
 from django.core.management.base import BaseCommand
 from executors.extensions import ManagerFactory
-from executors.models import Task,Project,Log
+from executors.models import Task,Project,Log,update_all_tasks_metadata
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from django_apscheduler.jobstores import DjangoJobStore
@@ -8,6 +8,7 @@ from functools import partial
 from django.utils import timezone
 from executors.alerts import AlertFactory
 from loguru import logger
+
 def execute_datax_tasks(project,settings):
     try:
         alert=AlertFactory(project.notification)
@@ -59,6 +60,9 @@ def check_logs():
 
     except Exception as e:
         logger.exception(e)
+
+
+
 class Command(BaseCommand):
     help = '''
     启动DataX任务调度器。
@@ -73,9 +77,9 @@ class Command(BaseCommand):
         
         if options.get('project'):
             project_name = options.get('project')
-            project=Project.objects.filter(name=project_name)
+            project=Project.objects.filter(name=project_name,is_active=True)
         else:
-            project=Project.objects.all()
+            project=Project.objects.filter(is_active=True)
         for p in project:
             settings={
                 "execute_way": "update",
@@ -102,7 +106,15 @@ class Command(BaseCommand):
         scheduler.add_job(
             check_logs,
             trigger=CronTrigger.from_crontab('*/5 * * * *'),  # 每5分钟执行一次
-            id='check_logs', 
+            id='检查日志', 
+            replace_existing=True,
+            misfire_grace_time=60
+        )
+        scheduler.add_job(
+            update_all_tasks_metadata,
+            # 每天执行一次
+            trigger=CronTrigger.from_crontab('0 0 * * *'),
+            id='更新元数据', 
             replace_existing=True,
             misfire_grace_time=60
         )

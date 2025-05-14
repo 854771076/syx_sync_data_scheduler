@@ -117,7 +117,7 @@ SIMPLEUI_CONFIG = {
      'system_keep': False,
      
       # 用于菜单排序和过滤, 不填此字段为默认排序和全部显示。空列表[] 为全部不显示.
-     'menu_display': ['任务管理','配置管理','调度管理','通知管理', '权限认证'],
+     'menu_display': ['任务管理','配置管理','调度管理','通知管理','元数据管理', '权限认证'],
      
      # 设置是否开启动态菜单, 默认为False. 如果开启, 则会在每次用户登陆时刷新展示菜单内容。
      # 一般建议关闭。
@@ -151,6 +151,10 @@ SIMPLEUI_CONFIG = {
                  {
                  'name': '任务列表',
                  'url': '/admin/executors/task/',
+                 },
+                 {
+                 'name': '执行日志',
+                 'url': '/admin/executors/log/',
                  }
              ]
          },
@@ -187,10 +191,6 @@ SIMPLEUI_CONFIG = {
                  'url': '/admin/executors/config/',
                  },
                  {
-                 'name': '分库分表配置',
-                 'url': '/admin/executors/splitconfig/',
-                 },
-                 {
                  'name': '字段配置',
                  'url': '/admin/executors/columnconfig/',
                  },
@@ -204,6 +204,20 @@ SIMPLEUI_CONFIG = {
                  },
              ]
          },
+         {
+             'name': '元数据管理',
+             'icon': 'fa fa-th-list',
+             'models': [
+                 {
+                 'name': '数据表',
+                 'url': '/admin/executors/metadatatable/',
+                 },
+                 {
+                 'name': '数据血缘',
+                 'url': '/admin/executors/metadatalineage/',
+                 },
+             ]
+         },
      ]
  }
 WSGI_APPLICATION = "syx_sync_data_scheduler.wsgi.application"
@@ -211,7 +225,7 @@ WSGI_APPLICATION = "syx_sync_data_scheduler.wsgi.application"
 
 # Database
 # https://docs.djangoproject.com/en/4.1/ref/settings/#databases
-USE_TZ = True
+# USE_TZ = True
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
