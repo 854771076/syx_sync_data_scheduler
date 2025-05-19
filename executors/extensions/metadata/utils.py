@@ -8,7 +8,9 @@ import json,os
 from datetime import datetime
 import subprocess
 from threading import Thread,Lock
-from django.utils import timezone
+# from django.utils import timezone
+from datetime import datetime,timedelta
+
 
 
 
@@ -23,7 +25,7 @@ class DatabaseTableHandler:
         date_list = []
         while start < end:
             date_list.append(start.strftime(format))
-            start += timezone.timedelta(days=1)
+            start += timedelta(days=1)
         return date_list
     @staticmethod
     def split(task,execute_way='all'):
@@ -36,12 +38,16 @@ class DatabaseTableHandler:
             # tb_time_suffix_start_time
             assert task.split_config.tb_time_suffix_start_time is not None, 'tb_time_suffix_start_time is None'
             # tb_time_suffix_end_time
-            assert task.split_config.tb_time_suffix_end_time is not None, 'tb_time_suffix_end_time is None'
+            # assert task.split_config.tb_time_suffix_end_time is not None, 'tb_time_suffix_end_time is None'
+            if task.split_config.tb_time_suffix_end_time is None:
+                tb_time_suffix_end_time=datetime.now().date()
+            else:
+                tb_time_suffix_end_time=task.split_config.tb_time_suffix_end_time
             if execute_way=='all':
-                time_list=DatabaseTableHandler.get_time_list(task.split_config.tb_time_suffix_start_time,task.split_config.tb_time_suffix_end_time,task.split_config.tb_time_suffix_format)
+                time_list=DatabaseTableHandler.get_time_list(task.split_config.tb_time_suffix_start_time,tb_time_suffix_end_time,task.split_config.tb_time_suffix_format)
             else:
                 assert task.split_config.tb_time_suffix_update_frequency is not None, 'tb_time_suffix_update_frequency is None'
-                time_list=DatabaseTableHandler.get_time_list(timezone.now().date()-timezone.timedelta(days=task.split_config.tb_time_suffix_update_frequency),timezone.now().date(),task.split_config.tb_time_suffix_format)
+                time_list=DatabaseTableHandler.get_time_list(datetime.now().date()-timedelta(days=task.split_config.tb_time_suffix_update_frequency),datetime.now().date(),task.split_config.tb_time_suffix_format)
             for time in time_list:
                 tables.append(format_name + '_' + time)
             return tables
@@ -333,7 +339,7 @@ class DataxUtil:
             else:
                 config_path = cls.output_dir / f"{cls.task.id}.json"
                 log_path = cls.logs_dir / f"{cls.task.id}.log"
-            start_time=timezone.now()
+            start_time=datetime.now()
             # 判断系统
             if os.name == 'nt':
                 command = f'set HADOOP_USER_NAME={cls.task.project.tenant.name}&&{cls.config["PYTHON_BIN_PATH"]} {cls.config["DATAX_BIN_PATH"]} --jvm="{cls.jvm_options}" {config_path} > {log_path}'
@@ -348,8 +354,8 @@ class DataxUtil:
                 defaults={
                     'executed_state': 'process',
                     'complit_state': 2,
-                    'start_time': start_time,
-                    'end_time': None,
+                    'start_time': cls.settings.get('start_time'),
+                    'end_time': cls.settings.get('end_time'),
                     'local_row_update_time_start': start_time,
                     'local_row_update_time_end': None,
                     'numrows': None,
@@ -361,19 +367,20 @@ class DataxUtil:
                 # 如果记录已存在，则更新
                 log_obj.executed_state = 'process'
                 log_obj.complit_state = 2
-                log_obj.start_time = start_time
-                log_obj.end_time = None
+                log_obj.start_time = cls.settings.get('start_time')
+                log_obj.end_time = cls.settings.get('end_time')
                 log_obj.local_row_update_time_start = start_time
                 log_obj.local_row_update_time_end = None
                 log_obj.numrows = None
                 log_obj.remark = '执行中'
                 log_obj.datax_json = cls.task.datax_json
                 log_obj.save()
+            cls.pre_execute()
             result = subprocess.run(
                     command,
                     shell=True, encoding='utf-8'
                 )
-            end_time=timezone.now()
+            end_time=datetime.now()
             # 保存执行日志
             with open(cls.logs_dir / f"{cls.task.id}.log", "r", encoding="utf-8") as log_file:
                 log_data=log_file.read()
@@ -394,8 +401,8 @@ class DataxUtil:
                         defaults={
                             'executed_state': 'fail',
                             'complit_state': 0,
-                            'start_time': start_time,
-                            'end_time': end_time,
+                            'start_time': cls.settings.get('start_time'),
+                            'end_time': cls.settings.get('end_time'),
                             'local_row_update_time_start': start_time,
                             'local_row_update_time_end': end_time,
                             'numrows': log.get('read_num'),
@@ -407,8 +414,8 @@ class DataxUtil:
                         # 如果记录已存在，则更新
                         log_obj.executed_state = 'fail'
                         log_obj.complit_state = 0
-                        log_obj.start_time = start_time
-                        log_obj.end_time = end_time
+                        log_obj.start_time = cls.settings.get('start_time')
+                        log_obj.end_time = cls.settings.get('end_time')
                         log_obj.local_row_update_time_start = start_time
                         log_obj.local_row_update_time_end = end_time
                         log_obj.numrows = log.get('read_num')
@@ -426,8 +433,8 @@ class DataxUtil:
                         defaults={
                             'executed_state': 'success',
                             'complit_state': 1,
-                            'start_time': start_time,
-                            'end_time': end_time,
+                            'start_time': cls.settings.get('start_time'),
+                            'end_time': cls.settings.get('end_time'),
                             'local_row_update_time_start': start_time,
                             'local_row_update_time_end': end_time,
                             'numrows': log.get('read_num'),
@@ -439,8 +446,8 @@ class DataxUtil:
                         # 如果记录已存在，则更新
                         log_obj.executed_state = 'success'
                         log_obj.complit_state = 1
-                        log_obj.start_time = start_time
-                        log_obj.end_time = end_time
+                        log_obj.start_time = cls.settings.get('start_time')
+                        log_obj.end_time = cls.settings.get('end_time')
                         log_obj.local_row_update_time_start = start_time
                         log_obj.local_row_update_time_end = end_time
                         log_obj.numrows = log.get('read_num')
@@ -457,8 +464,8 @@ class DataxUtil:
                         defaults={
                             'executed_state': 'success',
                             'complit_state': 1,
-                            'start_time': start_time,
-                            'end_time': end_time,
+                            'start_time': cls.settings.get('start_time'),
+                            'end_time': cls.settings.get('end_time'),
                             'local_row_update_time_start': start_time,
                             'local_row_update_time_end': end_time,
                             'numrows': log.get('read_num'),
@@ -470,8 +477,8 @@ class DataxUtil:
                         # 如果记录已存在，则更新
                         log_obj.executed_state = 'success'
                         log_obj.complit_state = 1
-                        log_obj.start_time = start_time
-                        log_obj.end_time = end_time
+                        log_obj.start_time = cls.settings.get('start_time')
+                        log_obj.end_time = cls.settings.get('end_time')
                         log_obj.local_row_update_time_start = start_time
                         log_obj.local_row_update_time_end = end_time
                         log_obj.numrows = log.get('read_num')
@@ -481,7 +488,7 @@ class DataxUtil:
                 
                 return True,result.stdout
             else:
-                end_time=timezone.now()
+                end_time=datetime.now()
                 logger.exception(f"DataX 任务 {cls.task.id} 执行失败")
                 # 按唯一键查找或创建记录
                 log_obj, created = Log.objects.get_or_create(
@@ -587,7 +594,48 @@ class DataxTypes:
         'boolean': 'bool',
         'bytes': 'longblob',
     }
-
+    
+    # STARROCKS
+    STARROCKS_TO_DATAX = {
+        'int': 'long',
+        'tinyint': 'long',
+        'smallint': 'long',
+        'mediumint': 'long',
+        'bigint': 'long',
+        'largeint': 'long',
+        'float': 'double',
+        'double': 'double',
+        'decimal': 'double',
+        'varchar': 'string',
+        'char': 'string',
+        'tinytext': 'string',
+        'text': 'string',
+        'mediumtext': 'string',
+        'longtext': 'string',
+        'string': 'string',
+        'year': 'string',
+        'date': 'date',
+        'datetime': 'date',
+        'timestamp': 'date',
+        'time': 'date',
+        'bit': 'boolean',
+        'bool': 'boolean',
+        'boolean': 'boolean',
+        'tinyblob': 'bytes',
+        'mediumblob': 'bytes',
+        'blob': 'bytes',
+        'longblob': 'bytes',
+        'binary': 'bytes',
+        'varbinary': 'bytes'
+    }
+    DATAX_TO_STARROCKS={
+        'long': 'largeint',
+        'double': 'double',
+        'string': 'string',
+        'date': 'datetime',
+        'boolean': 'boolean',
+        'bytes': 'binary',
+    }
     # Hive 数据类型到 DataX 内部类型的映射
     HIVE_TO_DATAX = {
         'tinyint': 'long',
@@ -645,6 +693,31 @@ class DataxTypes:
             raise ValueError(f"Unsupported MySQL type: {mysql_type}")
         return datax_type
     @staticmethod
+    def starrocks_to_datax(starrocks_type: str) -> str:
+        """
+        将 starrocks 数据类型转换为 DataX 内部类型。
+
+        :param starrocks_type: starrocks 数据类型，如 'int', 'varchar' 等
+        :return: 对应的 DataX 内部类型
+        :raises ValueError: 如果未找到对应的 DataX 内部类型
+        """
+        datax_type = DataxTypes.STARROCKS_TO_DATAX.get(DataxTypes.format_type(starrocks_type.lower()),"string")
+        if datax_type is None:
+            raise ValueError(f"Unsupported STARROCKS type: {starrocks_type}")
+        return datax_type
+    @staticmethod
+    def datax_to_starrocks( datax_type: str) -> str:
+        """
+        将 DataX 内部类型转换为 starrocks 数据类型。
+
+        :param datax_type: DataX 内部类型，如 'long', 'string' 等
+        :return: 对应的 starrocks 数据类型
+        :raises ValueError: 如果未找到对应的 starrocks 数据类型
+        """
+        starrocks_type = DataxTypes.DATAX_TO_STARROCKS.get(DataxTypes.format_type(datax_type.lower()),"string")
+        if starrocks_type is None:
+            raise ValueError(f"Unsupported DataX type: {datax_type}")
+    @staticmethod
     def datax_to_mysql( datax_type: str) -> str:
         """
         将 DataX 内部类型转换为 MySQL 数据类型。
@@ -684,3 +757,36 @@ class DataxTypes:
         if hive_type is None:
             raise ValueError(f"Unsupported DataX type: {datax_type}")
         return hive_type
+    
+    # 通用统一转换方法，多数据源类型，根据源数据源类型转换到目标数据源类型
+    @staticmethod
+    def convert_type(source_type: str, target_type: str, source: str) -> str:
+        """
+        通用类型转换方法，支持多种数据源类型。
+
+        :param source_type: 源数据源类型，如 'mysql', 'hive' 等
+        :param target_type: 目标数据源类型，如 'mysql', 'hive' 等
+        :param value: 要转换的值
+        :return: 转换后的值
+        """
+        if source_type == 'mysql' and target_type == 'hive':
+            datax_type=DataxTypes.mysql_to_datax(source)
+            return DataxTypes.datax_to_hive(datax_type)
+        elif source_type == 'mysql' and target_type == 'hdfs':
+            datax_type=DataxTypes.mysql_to_datax(source)
+            return DataxTypes.datax_to_hive(datax_type)
+        elif source_type =='hive' and target_type == 'mysql':
+            datax_type=DataxTypes.hive_to_datax(source)
+            return DataxTypes.datax_to_mysql(datax_type)
+        elif source_type== 'mysql' and target_type == 'starrocks':
+            datax_type=DataxTypes.mysql_to_datax(source)
+            return DataxTypes.datax_to_starrocks(datax_type)
+        elif source_type=='starrocks' and target_type =='mysql':
+            datax_type=DataxTypes.starrocks_to_datax(source)
+            return DataxTypes.datax_to_mysql(datax_type)
+        elif source_type==target_type:
+            return source
+        else:
+            raise ValueError(f"Unsupported type conversion: {source_type} to {target_type}")
+
+

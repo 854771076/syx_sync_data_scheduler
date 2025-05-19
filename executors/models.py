@@ -5,6 +5,8 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.contrib import messages
 from loguru import logger
+from django.contrib.auth.models import User
+
 # 租户
 class Tenant(models.Model):
     name = models.CharField(max_length=255, verbose_name="租户名称", db_index=True)
@@ -51,7 +53,7 @@ class Project(models.Model):
     name = models.CharField(max_length=255, verbose_name="项目名称", db_index=True)
     description = models.TextField(verbose_name="项目描述")
     engine = models.CharField(max_length=255, verbose_name="项目引擎", choices=Engine.choices,default=Engine.DATAX)
-    config=models.JSONField(verbose_name="项目配置",default=dict,null=True,blank=True)
+    config=models.JSONField(verbose_name='项目配置,{"cron": "05 00 * * *", "max_worker": 10, "DATAX_JVM_OPTIONS": "-Xms1g -Xmx2g"}',default=dict,null=True,blank=True)
     # 租户
     tenant = models.ForeignKey(Tenant, on_delete=models.SET_DEFAULT, verbose_name="关联租户",default=1,null=True,blank=True)
     # 通知配置
@@ -138,6 +140,7 @@ class ConfigItem(models.Model):
 class SplitConfig(models.Model):
     """分库分表配置模型"""
     name = models.CharField(max_length=255, verbose_name="配置名称", db_index=True)
+    description = models.TextField(verbose_name="配置描述",default="",null=True,blank=True)
     db_split = models.BooleanField(default=False, verbose_name="是否分库")
     tb_split = models.BooleanField(default=False, verbose_name="是否分表")
     tb_other = models.BooleanField(default=False, verbose_name="是否有other分表")
@@ -171,28 +174,6 @@ class SplitConfig(models.Model):
 
 
 
-# class ColumnConfig(models.Model):
-#     """字段配置模型"""
-
-#     name=models.CharField(max_length=255, verbose_name="配置名称", db_index=True)
-#     partition_column = models.CharField(max_length=255, null=True, blank=True, verbose_name="分区字段", default="partition_date")
-#     exclude_columns = models.JSONField(verbose_name="排除字段列表", default=list, null=True, blank=True)
-#     columns=models.JSONField(verbose_name="字段列表", default=list, null=True, blank=True)
-#     reader_transform_columns=models.JSONField(verbose_name="reader转换字段列表", default=dict, null=True, blank=True)
-#     # 同步时间字段，如果有则会自动生成同步时间字段，默认为cdc_sync_date
-#     sync_time_column = models.CharField(max_length=255, null=True, blank=True, verbose_name="同步时间字段，如果有则会自动生成同步时间字段，例如cdc_sync_date", default=None)
-#     # 是否分区
-#     is_partition = models.BooleanField(default=False, verbose_name="是否分区")
-#     # 是否添加同步时间字段
-#     is_add_sync_time = models.BooleanField(default=False, verbose_name="是否添加同步时间字段")
-#     created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
-#     updated_at = models.DateTimeField(auto_now=True, verbose_name="更新时间")
-#     class Meta:
-#         verbose_name = '字段配置'
-#         verbose_name_plural = verbose_name
-
-#     def __str__(self):
-#         return f"{self.name}"
 
 class Task(models.Model):
     project = models.ForeignKey(Project, on_delete=models.CASCADE, verbose_name="关联项目")
@@ -210,8 +191,8 @@ class Task(models.Model):
     # column_config = models.ForeignKey(ColumnConfig, on_delete=models.SET_NULL, verbose_name="字段配置", null=True, blank=True)
     partition_column = models.CharField(max_length=255, null=True, blank=True, verbose_name="分区字段", default="partition_date")
     exclude_columns = models.JSONField(verbose_name="排除字段列表", default=list, null=True, blank=True)
-    columns=models.JSONField(verbose_name="字段列表", default=list, null=True, blank=True)
-    reader_transform_columns=models.JSONField(verbose_name="reader转换字段列表", default=dict, null=True, blank=True)
+    columns=models.JSONField(verbose_name="自定义字段列表", default=list, null=True, blank=True)
+    reader_transform_columns=models.JSONField(verbose_name='映射字段字典(如{"partition_date":"partition_date1"})', default=dict, null=True, blank=True)
     # 同步时间字段，如果有则会自动生成同步时间字段，默认为cdc_sync_date
     sync_time_column = models.CharField(max_length=255, null=True, blank=True, verbose_name="同步时间字段，如果有则会自动生成同步时间字段，例如cdc_sync_date", default=None)
     # 是否分区
@@ -220,7 +201,7 @@ class Task(models.Model):
     is_add_sync_time = models.BooleanField(default=False, verbose_name="是否添加同步时间字段")
     update_column = models.CharField(max_length=255, null=True, blank=True, verbose_name="更新字段", default="create_time")
     # 启动参数配置
-    config = models.JSONField(verbose_name="启动参数配置,设置jvm等", default=dict, null=True, blank=True)
+    config = models.JSONField(verbose_name='启动参数配置,{"jvm_options": "-Xms5g -Xmx10g","session":[],"preSql":[]}', default=dict, null=True, blank=True)
     datax_json=models.JSONField(verbose_name="最新DataX任务JSON",default=dict,null=True,blank=True)
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="更新时间")
@@ -242,7 +223,7 @@ class Task(models.Model):
         verbose_name = '任务'
         verbose_name_plural = verbose_name
         # 添加唯一约束，确保每个项目的任务名称唯一
-        unique_together = ('project','source_db','source_table','target_db','target_table','split_config','is_delete')
+        # unique_together = ('project','source_db','source_table','target_db','target_table','split_config','is_delete')
 
 class Log(models.Model):
     class executeWayChoices(models.TextChoices):
@@ -250,6 +231,7 @@ class Log(models.Model):
         incr_sync = 'update', '增量同步'
         full_load = 'other', '其他'
         action='action','自定义执行'
+        retry='retry','重试'
     class statusChoices(models.TextChoices):
         success = 'success', '成功'
         fail = 'fail', '失败'
@@ -259,6 +241,7 @@ class Log(models.Model):
         success = 1, '成功'
         fail = 0, '失败'
         process = 2, '处理中'
+        bak = 3, '备份'
     task = models.ForeignKey(Task, on_delete=models.CASCADE, verbose_name="关联任务")
     partition_date = models.CharField(max_length=10,verbose_name="分区日期",null=True,blank=True)
     execute_way = models.CharField(max_length=10, verbose_name="执行方式",choices=executeWayChoices.choices,default=executeWayChoices.incr_sync)
@@ -277,18 +260,19 @@ class Log(models.Model):
     datax_json=models.JSONField(verbose_name="DataX任务",default=dict,null=True,blank=True)
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="更新时间")
-    logs_dir = Path(__file__).parent/"extensions"/"datax"/"logs"
+    
     @property
     def project(self):
         return self.task.project
-    @property
-    def log_file(self):
-        log_file_path = self.logs_dir / f"{self.task.id}.log"
-        if log_file_path.exists():
-            with open(log_file_path, 'r', encoding='utf-8') as file:
-                log_content = file.read()
-                return log_content
-        return "日志文件不存在"
+    # @property
+    # def log_file(self):
+    #     log_file_path = self.logs_dir / f"{self.task.id}.log"
+    #     if log_file_path.exists():
+    #         with open(log_file_path, 'r', encoding='utf-8') as file:
+    #             # 取最后200行
+    #             lines = file.readlines()[-10:]
+    #             return '\n'.join(lines)
+    #     return "日志文件不存在"
     @property
     def source_db(self):
         return self.task.source_db
@@ -332,25 +316,17 @@ class MetadataTable(models.Model):
         verbose_name = '数据表元数据'
         unique_together = ('data_source', 'db_name', 'name')
 
-
-class MetadataLineage(models.Model):
-    """元数据血缘关系"""
-    source_table = models.ForeignKey(MetadataTable, related_name='source_lineages', 
-                                   on_delete=models.SET_NULL, verbose_name="来源表",null=True, blank=True)
-    target_table = models.ForeignKey(MetadataTable, related_name='target_lineages',
-                                   on_delete=models.SET_NULL, verbose_name="目标表",null=True, blank=True)
-    task = models.ForeignKey(Task, on_delete=models.SET_NULL, null=True, verbose_name="关联任务", blank=True)
-    update_column = models.CharField(max_length=255, verbose_name="更新字段",null=True, blank=True)
-    partition_column = models.CharField(max_length=255, verbose_name="分区字段",null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
-    updated_at = models.DateTimeField(auto_now=True, verbose_name="更新时间")
-    def __str__(self):
-        return f"{self.source_table.db_name}.{self.source_table.name} → {self.target_table.db_name}.{self.target_table.name}"
-
-    class Meta:
-        verbose_name = '元数据血缘'
-
-
+class AsyncTaskStatus(models.Model):
+    user_id=models.IntegerField(verbose_name="用户ID",null=True,blank=True)
+    task_name = models.CharField(max_length=255)
+    status = models.CharField(max_length=20, choices=[
+        ('pending', '等待中'),
+        ('success', '成功'),
+        ('failed', '失败')
+    ])
+    message = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
 
 @receiver(post_save, sender=Task)
@@ -378,13 +354,6 @@ def sync_table_metadata(sender, instance:Task, created, **kwargs):
             config
         )
         logger.info(f"任务 {instance.name} 的元数据已同步")
-        # 保存，如果已存在则更新
-        cls, created = MetadataLineage.objects.update_or_create(
-            source_table=MetadataTable.objects.get(data_source=instance.data_source,db_name=instance.source_db,name=instance.source_table),
-            target_table=MetadataTable.objects.get(data_source=instance.data_target,db_name=instance.target_db,name=instance.target_table),
-            task=instance,
-            defaults={'update_column': instance.update_column,'partition_column':instance.partition_column} 
-        )
     except Exception as e:
         logger.error(e)
 def _sync_single_metadata(data_source:DataSource, db_name:str, table_name:str,config,tables=[]):
@@ -393,8 +362,10 @@ def _sync_single_metadata(data_source:DataSource, db_name:str, table_name:str,co
     db_type = data_source.type
     if tables:
         source_db,source_table=tables[0].split(".")
+    else:
+        source_db,source_table=db_name,table_name
     # 根据不同类型获取元数据
-    if db_type == 'mysql':
+    if db_type == 'mysql' or db_type == 'starrocks':
         mysql_conn=MysqlUtil.get_mysql_client_by_config(data_source)
         columns = MysqlUtil.get_table_schema(mysql_conn,source_db,source_table)
     elif db_type == 'hive' or db_type == 'hdfs':

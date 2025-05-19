@@ -12,7 +12,7 @@ from executors.alerts.base.base import BaseAlert
 
 class ding_ding_robot(BaseAlert):
 
-    def __init__(self, project = None):
+    def __init__(self, notification = None,title=None):
         from ...models import Log,Task,Notification,Project,ConfigItem
         config=dict(ConfigItem.objects.all().values_list("key", "value"))
         self.timestamp = str(round(time.time() * 1000))
@@ -20,15 +20,18 @@ class ding_ding_robot(BaseAlert):
         if config.get('ENV')=='prod':
             self.URL = self.URL.replace('https','http')
         
-        self.token = project.notification.config.get('ACCESS_TOKEN')
+        self.token = notification.config.get('ACCESS_TOKEN')
         self.headers = {"Content-Type": "application/json"}
-        self.secret = project.notification.config.get("SECRET")
+        self.secret = notification.config.get("SECRET")
         assert self.token, "ACCESS_TOKEN is required"
         assert self.secret, "SECRET is required"
-        self.at=project.notification.config.get("AT")
+        self.at=notification.config.get("AT")
         self.params = {}
-        self.title=project.name
-        self.template=project.notification.template
+        if not title:
+            self.title=notification.name
+        else:
+            self.title=title
+        self.template=notification.template
 
     def get_message(self, content):
         '''

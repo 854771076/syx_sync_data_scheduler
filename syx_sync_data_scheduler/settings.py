@@ -155,6 +155,10 @@ SIMPLEUI_CONFIG = {
                  {
                  'name': '执行日志',
                  'url': '/admin/executors/log/',
+                 },
+                 {
+                 'name': '执行状态',
+                 'url': '/admin/executors/asynctaskstatus/', 
                  }
              ]
          },
@@ -191,12 +195,8 @@ SIMPLEUI_CONFIG = {
                  'url': '/admin/executors/config/',
                  },
                  {
-                 'name': '字段配置',
-                 'url': '/admin/executors/columnconfig/',
-                 },
-                 {
-                 'name': '数据源配置',
-                 'url': '/admin/executors/datasource/',
+                 'name': '分表配置',
+                 'url': '/admin/executors/splitconfig/',
                  },
                  {
                  'name': '租户配置',
@@ -209,13 +209,14 @@ SIMPLEUI_CONFIG = {
              'icon': 'fa fa-th-list',
              'models': [
                  {
+                 'name': '数据源配置',
+                 'url': '/admin/executors/datasource/',
+                 },
+                 {
                  'name': '数据表',
                  'url': '/admin/executors/metadatatable/',
                  },
-                 {
-                 'name': '数据血缘',
-                 'url': '/admin/executors/metadatalineage/',
-                 },
+                 
              ]
          },
      ]
@@ -262,11 +263,11 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = "zh-hans"
 
-TIME_ZONE = "Asia/Shanghai"
+# TIME_ZONE = "Asia/Shanghai"
 
 USE_I18N = True
 
-USE_TZ = True
+USE_TZ = False
 
 TEMPLATES = [
     {

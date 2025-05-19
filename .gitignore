@@ -13,3 +13,4 @@ env
 bin/启信宝测试配置.py
 .gitignore
 bin/启信宝配置.py
+backups

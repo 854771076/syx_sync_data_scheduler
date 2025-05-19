@@ -5,7 +5,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from django_apscheduler.jobstores import DjangoJobStore
 from functools import partial
-from django.utils import timezone
+# from django.utils import timezone
+from datetime import datetime, timedelta
 from executors.alerts import AlertFactory
 from loguru import logger
 
@@ -16,8 +17,8 @@ def execute_datax_tasks(project,settings):
         tasks = Task.objects.filter(is_active=True, project=project)
         manager = ManagerFactory(project.engine)
         manager = manager(tasks, settings=settings)
-        start_time=timezone.now()
-        alert(project=project).send_message(**{
+        start_time=datetime.now()
+        alert.send_message(**{
             "name":project.name,
             "partition_date":manager.settings.get('partition_date'),
             'start_time':start_time.strftime('%Y-%m-%d %H:%M:%S'),
@@ -26,8 +27,8 @@ def execute_datax_tasks(project,settings):
         })
         
         manager.execute_tasks()
-        end_time=timezone.now()
-        alert(project=project).send_message(**{
+        end_time=datetime.now()
+        alert.send_message(**{
             "name":project.name,
             "partition_date":manager.settings.get('partition_date'),
             'start_time':start_time.strftime('%Y-%m-%d %H:%M:%S'),
@@ -41,7 +42,7 @@ def execute_datax_tasks(project,settings):
 def check_logs():
     try:
         # 查询出当天失败日志
-        today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         logs = Log.objects.filter(complit_state=0, created_at__gte=today_start)
         if not logs:
             logger.debug("No failed logs found today.")
@@ -50,7 +51,7 @@ def check_logs():
         for log in logs:
             # 发送钉钉消息
             alert=AlertFactory(log.task.project.notification)
-            alert(project=log.task.project).send_message(**{
+            alert.send_message(**{
             "name":log.task.project.name,
             "partition_date":log.partition_date,
             'start_time':log.start_time.strftime('%Y-%m-%d %H:%M:%S'),
