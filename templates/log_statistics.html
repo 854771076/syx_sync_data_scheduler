@@ -92,6 +92,7 @@
 
             // 获取统计数据
             function fetchData() {
+                
                 const formData = filterForm.serialize();
                 $.ajax({
                     url: '/api/log-statistics/?' + formData,

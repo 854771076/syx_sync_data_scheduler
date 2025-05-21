@@ -152,7 +152,10 @@ execute_project_tasks_datax_update.short_description = "执行项目任务（更
 def log_retry(modeladmin, request, queryset):
     def _execute():
         try:
-            logs=[log for log in queryset.filter(complit_state=0)]
+            logs=[]
+            for log in queryset:
+                if log.complit_state!=1:
+                    logs.append(log)
             DataXPluginManager.execute_retry(logs)
         except Exception as e:
             logger.exception(e)
@@ -251,6 +254,7 @@ def task_configure_view(request):
 def project_configure_view(request):
     from.models import Project,Task
     def _execute_task(project, settings):
+        settings.update(project.config)
         tasks=Task.objects.filter(project=project,is_active=True)
         DataXPluginManager(tasks, settings).execute_tasks()
     def _execute_project():
@@ -263,7 +267,7 @@ def project_configure_view(request):
                 "execute_way": form.cleaned_data['execute_way'],
                 "start_time": form.cleaned_data['start_time'],
                 "end_time": form.cleaned_data['end_time'],
-                "partition_date": form.cleaned_data['partition_date']
+                "partition_date": form.cleaned_data['partition_date'],
             }
             with ThreadPoolExecutor(max_workers=5) as executor:
                 futures = [executor.submit(_execute_task, project, settings) for project in queryset]

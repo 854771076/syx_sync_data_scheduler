@@ -51,7 +51,7 @@ class DatabaseTableHandler:
             for time in time_list:
                 tables.append(format_name + '_' + time)
             return tables
-        if not task.split_config.db_split and not task.split_config.tb_split:
+        if not task.split_config.db_split and not task.split_config.tb_split and not task.split_config.tb_custom_split and not task.split_config.db_custom_split:
             tables.append(format_name)
             return tables
         # 单库多表
@@ -59,10 +59,11 @@ class DatabaseTableHandler:
             '''
             程序自动添加表下标并且依次遍历分表
             '''
-            assert task.split_config.tb_split_start_number <= task.split_config.tb_split_end_number, 'tb_split_start_number must be less than tb_split_end_number'
+            
             # 检查tb_split_start_number，tb_split_end_number是否有值
-            if task.split_config.tb_split_start_number is  None or task.split_config.tb_split_end_number is  None:
+            if (task.split_config.tb_split_start_number is  None or task.split_config.tb_split_end_number is  None) and not task.split_config.tb_other:
                 raise ValueError('tb_split_start_number or tb_split_end_number is None')
+            assert task.split_config.tb_split_start_number <= task.split_config.tb_split_end_number, 'tb_split_start_number must be less than tb_split_end_number'
             for i in range(task.split_config.tb_split_start_number, task.split_config.tb_split_end_number + 1):
                 tables.append(format_name + f'_{i}')
             if task.split_config.tb_other:
@@ -90,20 +91,18 @@ class DatabaseTableHandler:
                     tables.append(f'{task.source_db}_other.{task.source_table}_{j}')
                     if task.split_config.tb_other:
                         tables.append(f'{task.source_db}_other.{task.source_table}_other')      
-                        
-        else:
-            raise ValueError('db_split and tb_split must be True or False')
         # 自定义的分库分表
-        if task.split_config.custom_split_db_list and task.split_config.custom_split_db_list:
-            for db in task.split_config.custom_split_db_list:
+        if task.split_config.tb_custom_split or task.split_config.db_custom_split:
+            if task.split_config.custom_split_db_list and task.split_config.custom_split_db_list:
+                for db in task.split_config.custom_split_db_list:
+                    for tb in task.split_config.custom_split_tb_list:
+                        tables.append(task.source_db+'_'+db + '.' + task.source_table+'_'+tb)
+            if task.split_config.custom_split_db_list and not task.split_config.custom_split_tb_list:
+                for db in task.split_config.custom_split_db_list:
+                    tables.append(task.source_db+'_'+db + '.' + task.source_table)
+            if not task.split_config.custom_split_db_list and task.split_config.custom_split_tb_list:
                 for tb in task.split_config.custom_split_tb_list:
-                    tables.append(db + '.' + tb)
-        if task.split_config.custom_split_db_list and not task.split_config.custom_split_tb_list:
-            for db in task.split_config.custom_split_db_list:
-                tables.append(db + '.' + task.source_table)
-        if not task.split_config.custom_split_db_list and task.split_config.custom_split_tb_list:
-            for tb in task.split_config.custom_split_tb_list:
-                tables.append(task.source_db + '.' + tb)
+                    tables.append(task.source_db + '.' + task.source_table+'_'+tb)
         return tables 
 
 # Hive工具类
@@ -382,12 +381,11 @@ class DataxUtil:
                 )
             end_time=datetime.now()
             # 保存执行日志
-            with open(cls.logs_dir / f"{cls.task.id}.log", "r", encoding="utf-8") as log_file:
+            with open(log_path, "r", encoding="utf-8") as log_file:
                 log_data=log_file.read()
             
             # 处理执行结果
             if result.returncode == 0:
-                logger.info(f"DataX 任务 {cls.task.id} 执行成功")
                 # 解析执行日志
                 log=DataxUtil.parse_log(log_data)
                 # 记录日志
@@ -498,8 +496,8 @@ class DataxUtil:
                     defaults={
                         'executed_state': 'fail',
                         'complit_state': str(0),
-                        'start_time': start_time,
-                        'end_time': end_time,
+                        'start_time': cls.settings.get('start_time'),
+                        'end_time': cls.settings.get('end_time'),
                         'local_row_update_time_start': start_time,
                         'local_row_update_time_end': end_time,
                         'numrows': 0,
@@ -511,8 +509,8 @@ class DataxUtil:
                     # 如果记录已存在，则更新
                     log_obj.executed_state = 'fail'
                     log_obj.complit_state = str(0)
-                    log_obj.start_time = start_time
-                    log_obj.end_time = end_time
+                    log_obj.start_time = cls.settings.get('start_time')
+                    log_obj.end_time = cls.settings.get('end_time')
                     log_obj.local_row_update_time_start = start_time
                     log_obj.local_row_update_time_end = end_time
                     log_obj.numrows = 0
@@ -521,6 +519,7 @@ class DataxUtil:
                     log_obj.save()
                 return False,result.stderr
         except Exception as e:
+            end_time=datetime.now()
             logger.exception(f"DataX 任务 {cls.task.id} 执行异常: {e}")
             # 按唯一键查找或创建记录
             log_obj, created = Log.objects.get_or_create(
@@ -530,8 +529,8 @@ class DataxUtil:
                 defaults={
                     'executed_state': 'fail',
                     'complit_state': str(0),
-                    'start_time': start_time,
-                    'end_time': end_time,
+                    'start_time': cls.settings.get('start_time'),
+                    'end_time': cls.settings.get('end_time'),
                     'local_row_update_time_start': start_time,
                     'local_row_update_time_end': end_time,
                     'numrows': 0,
@@ -543,8 +542,8 @@ class DataxUtil:
                 # 如果记录已存在，则更新
                 log_obj.executed_state = 'fail'
                 log_obj.complit_state = str(0)
-                log_obj.start_time = start_time
-                log_obj.end_time = end_time
+                log_obj.start_time = cls.settings.get('start_time')
+                log_obj.end_time = cls.settings.get('end_time')
                 log_obj.local_row_update_time_start = start_time
                 log_obj.local_row_update_time_end = end_time
                 log_obj.numrows = 0
@@ -587,7 +586,7 @@ class DataxTypes:
         'varbinary': 'bytes'
     }
     DATAX_TO_MYSQL={
-        'long': 'bigint',
+        'long': 'int',
         'double': 'double',
         'string': 'longtext',
         'date': 'datetime',
@@ -717,6 +716,7 @@ class DataxTypes:
         starrocks_type = DataxTypes.DATAX_TO_STARROCKS.get(DataxTypes.format_type(datax_type.lower()),"string")
         if starrocks_type is None:
             raise ValueError(f"Unsupported DataX type: {datax_type}")
+        return starrocks_type
     @staticmethod
     def datax_to_mysql( datax_type: str) -> str:
         """
@@ -729,6 +729,7 @@ class DataxTypes:
         mysql_type = DataxTypes.DATAX_TO_MYSQL.get(DataxTypes.format_type(datax_type.lower()),"longtext")
         if mysql_type is None:
             raise ValueError(f"Unsupported DataX type: {datax_type}")
+        return mysql_type
 
     @staticmethod
     def hive_to_datax( hive_type: str) -> str:
@@ -757,7 +758,28 @@ class DataxTypes:
         if hive_type is None:
             raise ValueError(f"Unsupported DataX type: {datax_type}")
         return hive_type
-    
+    @staticmethod
+    def convert_to_datax_type(source_type: str, source: str) -> str:
+        """
+        通用类型转换方法，支持多种数据源类型。
+
+        :param source_type: 源数据源类型，如 'mysql', 'hive' 等
+        :param target_type: 目标数据源类型，如 'mysql', 'hive' 等
+        :param value: 要转换的值
+        :return: 转换后的值
+        """
+        conversion_map = {
+            'mysql': lambda s: DataxTypes.mysql_to_datax(s),
+            'starrocks': lambda s: DataxTypes.starrocks_to_datax(s),
+            'hdfs': lambda s: DataxTypes.hive_to_datax(s),
+        }
+
+            
+        key = source_type.lower()
+        if key in conversion_map:
+            return conversion_map[key](source)
+            
+        raise ValueError(f"Unsupported type conversion: {source_type} to datax type")
     # 通用统一转换方法，多数据源类型，根据源数据源类型转换到目标数据源类型
     @staticmethod
     def convert_type(source_type: str, target_type: str, source: str) -> str:
@@ -769,24 +791,22 @@ class DataxTypes:
         :param value: 要转换的值
         :return: 转换后的值
         """
-        if source_type == 'mysql' and target_type == 'hive':
-            datax_type=DataxTypes.mysql_to_datax(source)
-            return DataxTypes.datax_to_hive(datax_type)
-        elif source_type == 'mysql' and target_type == 'hdfs':
-            datax_type=DataxTypes.mysql_to_datax(source)
-            return DataxTypes.datax_to_hive(datax_type)
-        elif source_type =='hive' and target_type == 'mysql':
-            datax_type=DataxTypes.hive_to_datax(source)
-            return DataxTypes.datax_to_mysql(datax_type)
-        elif source_type== 'mysql' and target_type == 'starrocks':
-            datax_type=DataxTypes.mysql_to_datax(source)
-            return DataxTypes.datax_to_starrocks(datax_type)
-        elif source_type=='starrocks' and target_type =='mysql':
-            datax_type=DataxTypes.starrocks_to_datax(source)
-            return DataxTypes.datax_to_mysql(datax_type)
-        elif source_type==target_type:
+        conversion_map = {
+            ('mysql', 'hdfs'): lambda s: DataxTypes.datax_to_hive(DataxTypes.mysql_to_datax(s)),
+            ('mysql', 'starrocks'): lambda s: DataxTypes.datax_to_starrocks(DataxTypes.mysql_to_datax(s)),
+            ('starrocks', 'mysql'): lambda s: DataxTypes.datax_to_mysql(DataxTypes.starrocks_to_datax(s)),
+            ('starrocks','hdfs'): lambda s: DataxTypes.datax_to_hive(DataxTypes.starrocks_to_datax(s)),
+            ('hdfs', 'starrocks'): lambda s: DataxTypes.datax_to_starrocks(DataxTypes.hive_to_datax(s)),
+            ('hdfs', 'mysql'): lambda s: DataxTypes.datax_to_mysql(DataxTypes.hive_to_datax(s)),
+        }
+
+        if source_type == target_type:
             return source
-        else:
-            raise ValueError(f"Unsupported type conversion: {source_type} to {target_type}")
+            
+        key = (source_type.lower(), target_type.lower())
+        if key in conversion_map:
+            return conversion_map[key](source)
+            
+        raise ValueError(f"Unsupported type conversion: {source_type} to {target_type}")
 
 

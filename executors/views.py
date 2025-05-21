@@ -120,7 +120,7 @@ def backup_data():
         config=dict(ConfigItem.objects.all().values_list("key", "value"))
         # django项目绝对路径
         project_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        backup_file = os.path.join(backup_dir, f'executors.sql')
+        backup_file = os.path.join(backup_dir, f'executors.json')
         # 执行备份命令
         python_path=config.get('PYTHON_BIN_PATH')
         os.system(f'{python_path} {project_path}/manage.py dumpdata executors > {backup_file}')
@@ -155,7 +155,7 @@ def init_scheduler_task():
         trigger=CronTrigger.from_crontab('30 09 * * *'),  # 每5分钟执行一次
         id='检查日志', 
         replace_existing=True,
-        misfire_grace_time=60
+        misfire_grace_time=3600
     )
     scheduler.add_job(
         update_all_tasks_metadata,
@@ -163,7 +163,7 @@ def init_scheduler_task():
         trigger=CronTrigger.from_crontab('0 0 * * *'),
         id='更新元数据', 
         replace_existing=True,
-        misfire_grace_time=60
+        misfire_grace_time=3600
     )
     scheduler.add_job(
         check_logs_and_retry,
@@ -171,7 +171,7 @@ def init_scheduler_task():
         trigger=CronTrigger.from_crontab('0 6 * * *'),
         id='重试任务', 
         replace_existing=True,
-        misfire_grace_time=60
+        misfire_grace_time=3600
     )
     scheduler.add_job(
         backup_data,
@@ -179,7 +179,7 @@ def init_scheduler_task():
         trigger=CronTrigger.from_crontab('0 6 * * *'),
         id='备份数据', 
         replace_existing=True,
-        misfire_grace_time=60
+        misfire_grace_time=3600
     )
     logger.success("All DataX schedulers started successfully.")
 

@@ -103,8 +103,8 @@ class DataXPluginManager:
                     "execute_way": log.execute_way,
                     **log.task.project.config,
                     'partition_date':log.partition_date,
-                    'start_time':log.start_time.strftime('%Y-%m-%d %H:%M:%S'),
-                    'end_time':log.end_time.strftime('%Y-%m-%d %H:%M:%S'),
+                    'start_time':log.start_time,
+                    'end_time':log.end_time,
                     
                 }
                 task = DataXPlugin(log.task, config, settings)
@@ -159,27 +159,17 @@ class DataXPlugin:
         assert self.settings.get(
             "execute_way"
         ), f"[datax_plugin]:execute_way is required"
-        # if self.source.type == "mysql" and self.target.type == "hdfs":
-        #     pass
-        # elif self.source.type == "mysql" and self.target.type == "mysql":
-        #     pass
-        # elif self.source.type == "hdfs" and self.target.type == "hdfs":
-        # else:
-        #     assert False, f"[datax_plugin]:unsupported data source or data target"
 
     def _init_clients(self):
         """初始化工具类"""
-
-        if self.source.type == "hdfs" or self.target.type == "hdfs":
-            self.hive = HiveUtil.get_hive_client_by_config(self.config, self.target)
-            self.hdfs = HdfsUtil.get_hdfs_client_by_config(self.config, self.target)
-        if self.source.type == "mysql" or self.target.type == "mysql":
-            self.mysql = MysqlUtil.get_mysql_client_by_config(self.source)
+        pass
 
     def _get_reader_config(self):
         """生成reader配置"""
         if self.source.type in ["mysql","starrocks"] :
             return Reader.mysql2other(self)
+        elif self.source.type in ["hdfs","hive"]:
+            return Reader.hive2other(self)
         else:
             assert False, f"[datax_plugin]:不支持的数据源类型[{self.source.type}]"
 
@@ -192,7 +182,7 @@ class DataXPlugin:
 
     def _get_writer_config(self):
         """生成writer配置"""
-        if self.target.type == "hdfs":
+        if self.target.type in ["hdfs","hive"]:
             return Writer.other2hive(self)
         elif self.target.type == "mysql":
             return Writer.other2mysql(self)
@@ -263,8 +253,9 @@ class DataXPlugin:
     def pre_execute(self):
         """预执行"""
         if self.task.is_partition and self.target.type in ["hive","hdfs"] :
+            hive=HiveUtil.get_hive_client_by_config(self.config,self.target)
             HiveUtil.add_partition(
-                self.hive,
+                hive,
                 self.task.target_db,
                 self.task.target_table,
                 self.task.partition_column,
@@ -282,7 +273,10 @@ class DataXPlugin:
         logger.info(
             f"[datax_plugin]:task {self.task.id} 开始执行--{self.settings.get('execute_way')}--{self.settings.get('partition_date')}"
         )
-        self.generate_config()
+        try:
+            self.generate_config()
+        except Exception as e:
+            logger.error(e)
         result = DataxUtil.execute_datax(self)
 
     # 通过reader_transform_columns配置转换字段名字
@@ -347,10 +341,10 @@ class Reader:
         columns_target = self._exclude_column(columns_target)
         # 转小写
         columns_target = [
-            {k.lower(): v.lower() for k, v in i.items()} for i in columns_target
+            {k.lower().replace('`',''): v.lower().replace('`','') for k, v in i.items()} for i in columns_target
         ]
         columns_source = [
-            {k.lower(): v.lower() for k, v in i.items()} for i in columns_source
+            {k.lower().replace('`',''): v.lower().replace('`','') for k, v in i.items()} for i in columns_source
         ]
         # 遍历columns_source,如果columns_source中的列在columns_target中不存在，则将其添加到target_not_exist中
         for column in columns_source:
@@ -360,10 +354,23 @@ class Reader:
         for column in columns_target:
             if (
                 column["name"] not in [x["name"] for x in columns_source]
-                and column["name"] != self.task.partition_column
-                and column["name"] != self.task.sync_time_column
+                and column["name"] != self.task.partition_column 
+                and column["name"] != self.task.sync_time_column 
             ):
                 source_not_exist.append(column)
+                self.source_columns.append(
+                    {
+                        "name": column["name"],
+                        "type": "string",
+                        "value": "NULL",
+                    }
+                )
+                self.target_columns.append(
+                    {
+                        "name": column["name"],
+                        "type": "string",
+                    }
+                )
             elif (
                 column["name"] == self.task.sync_time_column
                 and self.task.is_add_sync_time
@@ -392,20 +399,20 @@ class Reader:
                 pass
             else:
                 # 共有字段
-                format_column = DataxTypes.format_type(column["type"])
-                convert_type = DataxTypes.convert_type(
-                    self.source.type, self.target.type, column["type"]
-                )
+                target_format_column = DataxTypes.format_type(column["type"])
+                source_column=list(filter(lambda x: x["name"] == column["name"], columns_source))[0]
+                source_format_column = DataxTypes.format_type(source_column["type"])
+                datax_type=DataxTypes.convert_to_datax_type(self.source.type,source_format_column)
                 self.target_columns.append(
                     {
                         "name": column["name"],
-                        "type": format_column,
+                        "type": target_format_column,
                     }
                 )
                 self.source_columns.append(
                     {
                         "name": column["name"],
-                        "type": convert_type,
+                        "type": datax_type,
                     }
                 )
         source_columns_format = DataxTypes.format_reader_schema(self.source_columns)
@@ -484,48 +491,50 @@ class Reader:
     def hive2other(self: DataXPlugin):
         """hive2other 生成reader逻辑"""
         assert (
-            self.source.type in ["hive"]
+            self.source.type in ["hive","hdfs"]
         ), f"[datax_plugin]:task {self.task.id} source type must be hive"
         source_columns_format, tables = Reader.get_columns(self)
         if not self.target_columns:
             assert (
                 False
             ), f"[datax_plugin]:task {self.task.id} source table {self.task.source_table} and target table {self.task.target_table} columns not match"
-        if self.settings.get("execute_way") == "all":
-            where = f"{self.task.update_column}<'{self.settings.get('today').strftime('%Y-%m-%d 00:00:00')}'"
-        elif self.settings.get("execute_way") == "update":
-            where = f"{self.task.update_column} between '{self.settings.get('yesterday').strftime('%Y-%m-%d 00:00:00')}' and '{self.settings.get('today').strftime('%Y-%m-%d 00:00:00')}'"
-        elif self.settings.get("execute_way") == "other":
-            where = f"{self.task.update_column} between '{self.settings.get('start_time')}' and '{self.settings.get('end_time')}'"
-        else:
-            assert (
-                False
-            ), f"[datax_plugin]:不支持的执行方式[{self.settings.get('execute_way')}]"
-        if self.task.update_column and not self.task.split_config.tb_time_suffix:
-            querySql = [
-                f"select {source_columns_format} from {i} where {where}" for i in tables
-            ]
-        elif self.task.split_config.tb_time_suffix:
-            querySql = [f"select {source_columns_format}  from {i}" for i in tables]
-        else:
-            querySql = [f"select {source_columns_format}  from {i}" for i in tables]
-
-        reader_config = {
-            "name": "mysqlreader",
-            "parameter": {
-                "username": self.source.connection.username,
-                "password": self.source.connection.password,
-                "connection": [
-                    {
-                        "querySql": querySql,
-                        "jdbcUrl": [
-                            f"jdbc:mysql://{self.source.connection.host}:{self.source.connection.port}?useSSL=false&useUnicode=true&characterEncoding=utf8"
-                        ],
-                    }
-                ],
-            },
+        
+        hadoopConfig = self.source.connection.params.get("hadoopConfig")
+        compress=self.task.config.get('compress','NONE')
+        fileType=self.task.config.get('fileType','orc')
+        fieldDelimiter=self.task.config.get('fieldDelimiter','\u0001')
+        source_columns_format=[{'index':i,'type':j.get('type')} for i,j in enumerate(self.source_columns)]
+        
+        reader_parameter = {
+            "column": source_columns_format,
+            "nullFormat": "",
+            "defaultFS": self.source.connection.params.get("defaultFS"),
+            "hadoopConfig":hadoopConfig,
+            "path": f"/user/hive/warehouse/%s.db/%s/{self.task.partition_column}=%s/*", 
+            "fileType": fileType,
+            "fieldDelimiter": fieldDelimiter,
         }
-        return reader_config
+        if compress!='NONE' and compress:
+            reader_parameter["parameter"]["compress"]=compress
+        if len(tables)>1:
+            if self.settings.get("execute_way") =='all' and self.task.is_partition:
+                reader_parameter["path"]=reader_parameter["path"]%(self.task.source_db,self.task.source_table+"*","*")
+            elif not self.task.is_partition:
+                reader_parameter["path"]=f"/user/hive/warehouse/{self.task.source_db}.db/{self.task.source_table}*/*"
+            else:
+                reader_parameter["path"]=reader_parameter["path"]%(self.task.source_db,self.task.source_table+"*",)
+        else:
+            if self.settings.get("execute_way")  and self.task.is_partition:
+                reader_parameter["path"]=reader_parameter["path"]%(self.task.source_db,self.task.source_table,"*")
+            elif not self.task.is_partition:
+                reader_parameter["path"]=f"/user/hive/warehouse/{self.task.source_db}.db/{self.task.source_table}/*"
+            else:
+                reader_parameter["path"]=reader_parameter["path"]%(self.task.source_db,self.task.source_table,self.settings.get('partition_date'))
+        reader_parameter={
+            "name": "hdfsreader",
+            "parameter": reader_parameter
+        }
+        return reader_parameter
     # hive2other
 class Writer:
     @staticmethod
@@ -540,6 +549,11 @@ class Writer:
         else:
             self.mode = "truncate"
         hadoopConfig = self.target.connection.params.get("hadoopConfig")
+        compress=self.task.config.get('compress','NONE')
+        fileType=self.task.config.get('fileType','orc')
+        fieldDelimiter=self.task.config.get('fieldDelimiter','\u0001')
+
+
         writer_config = {
             "name": "hdfswriter",
             "parameter": {
@@ -548,11 +562,13 @@ class Writer:
                 "defaultFS": self.target.connection.params.get("defaultFS"),
                 "hadoopConfig": hadoopConfig,
                 "path": "/user/hive/warehouse/%s.db/%s",
-                "fileType": "orc",
+                "fileType": fileType,
                 "fileName": f"{self.task.target_table}",
-                "fieldDelimiter": "\u0001",
+                "fieldDelimiter": fieldDelimiter,
             },
         }
+        if compress!='NONE' and compress:
+            writer_config["parameter"]["compress"]=compress
         if self.task.partition_column and self.task.is_partition:
             writer_config["parameter"][
                 "path"
@@ -585,11 +601,11 @@ class Writer:
         if self.task.update_column:
             if self.task.is_delete:
                 pre_execute_sql.append(
-                    f"delete from {self.task.target_table} where {where}"
+                    f"delete from {self.task.target_db}.{self.task.target_table} where {where}"
                 )
         else:
             if self.task.is_delete:
-                pre_execute_sql.append(f"delete from {self.task.target_table}")
+                pre_execute_sql.append(f"truncate table {self.task.target_db}.{self.task.target_table}")
         # 检查预执行sql
         if self.task.config.get('preSql'):
             pre_execute_sql.extend(self.task.config.get('preSql'))
@@ -637,11 +653,11 @@ class Writer:
         if self.task.update_column:
             if self.task.is_delete:
                 pre_execute_sql.append(
-                    f"delete from {self.task.target_table} where {where}"
+                    f"delete from {self.task.target_db}.{self.task.target_table} where {where}"
                 )
         else:
             if self.task.is_delete:
-                pre_execute_sql.append(f"delete from {self.task.target_table}")
+                pre_execute_sql.append(f"truncate table {self.task.target_db}.{self.task.target_table}")
         if self.target.connection.params.get('loadUrl'):
             loadUrl = self.target.connection.params.get('loadUrl')
         else:

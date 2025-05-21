@@ -102,22 +102,29 @@ class SplitConfigAdmin(admin.ModelAdmin):
         })
         ,
         ('分库配置', {
-            'classes': ('collapse','readonly'),
+            'classes': ('collapse',),
             'fields': (
-                'db_split', 'db_other', 'db_split_start_number', 'db_split_end_number', 'custom_split_db_list'
+                'db_split', 'db_other', 'db_split_start_number', 'db_split_end_number',
             )
         }),
         ('分表配置', {
-            'classes': ('collapse','readonly'),
+            'classes': ('collapse',),
             'fields': (
-                'tb_split', 'tb_other', 'tb_split_start_number', 'tb_split_end_number', 'custom_split_tb_list'
+                'tb_split', 'tb_other', 'tb_split_start_number', 'tb_split_end_number'
             ) 
         }),
         ('时间分表配置', {
-            'classes': ('collapse','readonly'),
+            'classes': ('collapse',),
             'fields': (
                 'tb_time_suffix', 'tb_time_suffix_format', 'tb_time_suffix_start_time', 'tb_time_suffix_end_time', 'tb_time_suffix_update_frequency'
             ) 
+        }),
+        ('自定义分库分表配置', {
+            'classes': ('collapse',),
+            'fields': (
+                ('db_custom_split', 'custom_split_db_list'),
+                ('tb_custom_split', 'custom_split_tb_list')
+            )
         }),
         ('系统信息', {
             'classes': ('collapse','readonly'),
@@ -145,6 +152,7 @@ class TaskAdmin(admin.ModelAdmin):
         }),
         ('表配置', {
             'fields': (
+                ('data_source','data_target'),
                 ('source_db', 'source_table'),
                 ('target_db', 'target_table'),
                 ('is_active', 'is_delete'),

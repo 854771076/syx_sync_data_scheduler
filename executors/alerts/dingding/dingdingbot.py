@@ -6,8 +6,10 @@ import urllib.parse
 import requests
 import json
 import sys
+import random
 import os
-
+from threading import Lock
+from loguru import logger
 from executors.alerts.base.base import BaseAlert
 
 class ding_ding_robot(BaseAlert):
@@ -19,7 +21,7 @@ class ding_ding_robot(BaseAlert):
         self.URL = config.get('DINGDING_URL')
         if config.get('ENV')=='prod':
             self.URL = self.URL.replace('https','http')
-        
+        self._lock=Lock()
         self.token = notification.config.get('ACCESS_TOKEN')
         self.headers = {"Content-Type": "application/json"}
         self.secret = notification.config.get("SECRET")
@@ -87,35 +89,46 @@ class ding_ding_robot(BaseAlert):
         self.params["access_token"] = self.token
         self.params["timestamp"] = p.get("timestamp")
         self.params["sign"] = p.get("sign")
-        
-        resp=requests.post(
-            url=self.URL,
-            data=json.dumps(data),
-            params=self.params,
-            headers=self.headers,
-        )
-        return resp
+        for i in range(10):
+            try:
+                with self._lock:
+                    resp=requests.post(
+                        url=self.URL,
+                        data=json.dumps(data),
+                        params=self.params,
+                        headers=self.headers,
+                    )
+                    return resp
+            except Exception as e:
+                logger.warning(f"dingding send message failed, retry {i+1} times")
+                time.sleep(random.randint(10, 60))
     # 自定义模板发送
     def send_custom_message(self,content):
         """
         发送文本
         @param content: str, 文本内容
         """
+        
         data = self.get_message(content)
         
         p = self.get_timestamp_sign()
         self.params["access_token"] = self.token
         self.params["timestamp"] = p.get("timestamp")
         self.params["sign"] = p.get("sign")
+        for i in range(10):
+            try:
+                with self._lock:
+                    resp=requests.post(
+                        url=self.URL,
+                        data=json.dumps(data),
+                        params=self.params,
+                        headers=self.headers,
+                    )
+                    return resp
+            except Exception as e:
+                logger.warning(f"dingding send message failed, retry {i+1} times")
+                time.sleep(random.randint(10, 60))
         
-        resp=requests.post(
-            url=self.URL,
-            data=json.dumps(data),
-            params=self.params,
-            headers=self.headers,
-        )
-        return resp
-
 if __name__ == "__main__":
     robot = ding_ding_robot()
     robot.send_message("这是一个测试",at='19122486487')

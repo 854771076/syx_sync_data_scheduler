@@ -159,7 +159,8 @@ class SplitConfig(models.Model):
     db_split_end_number = models.IntegerField(null=True, blank=True, verbose_name="分库结束编号")
     tb_split_start_number = models.IntegerField(null=True, blank=True, verbose_name="分表起始编号")
     tb_split_end_number = models.IntegerField(null=True, blank=True, verbose_name="分表结束编号")
-    
+    tb_custom_split=models.BooleanField(default=False, verbose_name="是否自定义分表")
+    db_custom_split=models.BooleanField(default=False, verbose_name="是否自定义分库")
     custom_split_tb_list = models.JSONField(verbose_name="自定义分表列表", default=list, null=True, blank=True)
     custom_split_db_list = models.JSONField(verbose_name="自定义分库列表", default=list, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
@@ -201,7 +202,7 @@ class Task(models.Model):
     is_add_sync_time = models.BooleanField(default=False, verbose_name="是否添加同步时间字段")
     update_column = models.CharField(max_length=255, null=True, blank=True, verbose_name="更新字段", default="create_time")
     # 启动参数配置
-    config = models.JSONField(verbose_name='启动参数配置,{"jvm_options": "-Xms5g -Xmx10g","session":[],"preSql":[]}', default=dict, null=True, blank=True)
+    config = models.JSONField(verbose_name='启动参数配置,{"jvm_options": "-Xms5g -Xmx10g","session":[],"preSql":[],"compress":"NONE","fieldDelimiter":"\\u0001","fileType":"text"或"orc"}', default=dict, null=True, blank=True)
     datax_json=models.JSONField(verbose_name="最新DataX任务JSON",default=dict,null=True,blank=True)
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="更新时间")
@@ -329,33 +330,33 @@ class AsyncTaskStatus(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
 
-@receiver(post_save, sender=Task)
-def sync_table_metadata(sender, instance:Task, created, **kwargs):
-    from executors.extensions.metadata.utils import DatabaseTableHandler
-    """监听任务创建/更新，同步表元数据"""
-    try:
-        tables=DatabaseTableHandler.split(instance)
+# @receiver(post_save, sender=Task)
+# def sync_table_metadata(sender, instance:Task, created, **kwargs):
+#     from executors.extensions.metadata.utils import DatabaseTableHandler
+#     """监听任务创建/更新，同步表元数据"""
+#     try:
+#         tables=DatabaseTableHandler.split(instance)
         
-        config=dict(ConfigItem.objects.all().values_list("key", "value"))
-        # 同步源表元数据
-        _sync_single_metadata(
-            instance.data_source,
-            instance.source_db,
-            instance.source_table,
-            config,
-            tables
+#         config=dict(ConfigItem.objects.all().values_list("key", "value"))
+#         # 同步源表元数据
+#         _sync_single_metadata(
+#             instance.data_source,
+#             instance.source_db,
+#             instance.source_table,
+#             config,
+#             tables
 
-        )
-        # 同步目标表元数据
-        _sync_single_metadata(
-            instance.data_target,
-            instance.target_db,
-            instance.target_table,
-            config
-        )
-        logger.info(f"任务 {instance.name} 的元数据已同步")
-    except Exception as e:
-        logger.error(e)
+#         )
+#         # 同步目标表元数据
+#         _sync_single_metadata(
+#             instance.data_target,
+#             instance.target_db,
+#             instance.target_table,
+#             config
+#         )
+#         logger.info(f"任务 {instance.name} 的元数据已同步")
+#     except Exception as e:
+#         logger.error(e)
 def _sync_single_metadata(data_source:DataSource, db_name:str, table_name:str,config,tables=[]):
     """同步单个表的元数据"""
     from executors.extensions.metadata.utils import DatabaseTableHandler,HiveUtil,MysqlUtil
