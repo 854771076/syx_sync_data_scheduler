@@ -123,7 +123,7 @@ def backup_data():
         backup_file = os.path.join(backup_dir, f'executors.json')
         # 执行备份命令
         python_path=config.get('PYTHON_BIN_PATH')
-        os.system(f'{python_path} {project_path}/manage.py dumpdata executors > {backup_file}')
+        os.system(f'{python_path} {project_path}/manage.py dumpdata --exclude executors.log --exclude executors.metadatatable > {backup_file}')
         logger.info(f'Backup of executors completed.')
     except Exception as e:
         logger.exception(e)

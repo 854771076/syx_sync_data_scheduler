@@ -171,7 +171,7 @@ class TaskAdmin(admin.ModelAdmin):
         }),
         ('高级配置', {
             'classes': ('collapse',),
-            'fields': ('datax_json','config')
+            'fields': ('is_custom_script','datax_json','spark_code','config')
         }),
         ('系统信息', {
             'classes': ('collapse','readonly'),
@@ -183,7 +183,7 @@ class TaskAdmin(admin.ModelAdmin):
         })
     )
     readonly_fields = ('created_at', 'updated_at', 'tables_update', 'tables_all')
-    @admin.display(description='血缘路径')
+    @admin.display(description='路径')
     def lineage_path(self, obj):
         return f'{obj.source_db}.{obj.source_table} → {obj.target_db}.{obj.target_table}'
     def get_urls(self):
@@ -215,6 +215,7 @@ class LogAdmin(admin.ModelAdmin):
             'fields': (
                 'log_file',
                 'datax_json',
+                'spark_code'
             ) 
         }) ,
         ('系统信息', {
@@ -226,16 +227,31 @@ class LogAdmin(admin.ModelAdmin):
 
 
     )
-    logs_dir = Path(__file__).parent/"extensions"/"datax"/"logs"
+    
     @admin.display(description='日志详细')
     def log_file(self, obj):
-        log_file_path = self.logs_dir / f"{obj.task.id}.log"
-        if log_file_path.exists():
-            with open(log_file_path, 'r', encoding='utf-8') as file:
-                # 取最后200行
-                lines = file.readlines()[-200:]
-                return '\n'.join(lines)
-        return "日志文件不存在"
+        
+        if obj.task.project.engine == 'datax':
+            if obj.execute_way=='retry':
+                logs_path = f"/static/datax_logs/{obj.partition_date}/{obj.task.id}_retry.log"
+            else:
+                logs_path = f"/static/datax_logs//{obj.partition_date}/{obj.task.id}.log"
+        elif obj.task.project.engine == 'spark':
+            if obj.execute_way=='retry':
+                logs_path = f"/static/spark_logs/{obj.partition_date}/{obj.task.id}_retry.log"
+            else:
+                logs_path = f"/static/spark_logs//{obj.partition_date}/{obj.task.id}.log"
+        else:
+            return "日志文件不存在"
+        return format_html('<a href="{}" target="_blank">查看日志</a>', logs_path)
+        
+        # log_file_path = logs_dir / f"{obj.task.id}.log"
+        # if log_file_path.exists():
+        #     with open(log_file_path, 'r', encoding='utf-8') as file:
+        #         # 取最后200行
+        #         lines = file.readlines()[-200:]
+        #         return '\n'.join(lines)
+        # return "日志文件不存在"
     
 
     def has_add_permission(self, request):
@@ -266,7 +282,7 @@ class TenantAdmin(admin.ModelAdmin):
     fieldsets = (
         ('基础信息', {
             'fields': (
-                'name', 'description'
+                'name', 'description','queue'
             )
         }), 
         ('系统信息', {

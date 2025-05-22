@@ -4,7 +4,7 @@ import os
 import sys
 # 设置当前路径为项目根目录
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
-def export_hive_schema(host, port, database, output_file='schema.md',username='hive', password='hive', auth='LDAP'):
+def export_hive_schema(host, port, database, output_file='schema.md',username='hive', password='hive', auth='LDAP',where=None):
     """导出Hive库所有表结构"""
     conn = hive.Connection(
         host=host,
@@ -19,10 +19,12 @@ def export_hive_schema(host, port, database, output_file='schema.md',username='h
     # 获取所有表名
     cursor.execute(f"SHOW TABLES IN {database}")
     tables = [row[0] for row in cursor.fetchall()]
+    if where:
+        tables=[table for table in tables if where in table]
     
     # 准备输出内容
     output = []
-    
+    print(tables)
     for table in tables:
         # 获取表结构
         cursor.execute(f"DESCRIBE FORMATTED {database}.{table}")
@@ -41,13 +43,20 @@ def export_hive_schema(host, port, database, output_file='schema.md',username='h
 
 if __name__ == "__main__":
     database=sys.argv[1]
+    if len(sys.argv)>2:
+        where=sys.argv[2]
+    else:
+        where=None
     assert database ,'数据库名称错误'
     # 配置Hive连接信息
     export_hive_schema(
-        host='10.8.15.240',
+        host='10.255.79.164',
         port=10000,  # 默认端口
         database=database,
         output_file=f'{database}.sql',
         username='hive',
-        password='hive'
+        password='hive',
+        auth='LDAP',
+        where=where
+
     )

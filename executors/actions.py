@@ -12,7 +12,7 @@ from .views import  init_scheduler_task
 from concurrent.futures import ThreadPoolExecutor,as_completed
 import threading
 from datetime import datetime
-
+from executors.extensions import ManagerFactory
 task_executor = ThreadPoolExecutor(max_workers=5)
 def async_task_wrapper(func,request, *args, **kwargs):
     def wrapper():
@@ -74,41 +74,57 @@ def execute_datax_tasks_generate_config_update(modeladmin, request, queryset):
         settings={
             "execute_way": "update",
         }
-        datax=DataXPluginManager(queryset,settings)
-        datax.generate_config()
-        messages.success(request, "生成DATAX配置JSON成功！")
+        tasks={}
+        for task in queryset:
+            tasks[task.project.engine]=tasks.get(task.project.engine,[])
+            tasks[task.project.engine].append(task)
+        for engine in tasks:
+            manage=ManagerFactory(engine)
+            manage(tasks[engine], settings).generate_config()
+            messages.success(request, f"生成{engine}任务配置成功！")
     except Exception as e:
         logger.exception(e)
         messages.error(request, str(e))
 
-execute_datax_tasks_generate_config_update.short_description = "生成DATAX配置JSON（更新）"
+execute_datax_tasks_generate_config_update.short_description = "生成配置（更新）"
 def execute_datax_tasks_generate_config_all(modeladmin, request, queryset):
     try:
         settings={
             "execute_way": "all",
         }
-        datax=DataXPluginManager(queryset,settings)
-        datax.generate_config()
-        messages.success(request, "生成DATAX配置JSON成功！")
+        tasks={}
+        for task in queryset:
+            tasks[task.project.engine]=tasks.get(task.project.engine,[])
+            tasks[task.project.engine].append(task)
+        for engine in tasks:
+            manage=ManagerFactory(engine)
+            manage(tasks[engine], settings).generate_config()
+            messages.success(request, f"生成{engine}任务配置成功！")
     except Exception as e:
         logger.exception(e)
         messages.error(request, str(e))
 
-execute_datax_tasks_generate_config_all.short_description = "生成DATAX配置JSON（全量）"
+execute_datax_tasks_generate_config_all.short_description = "生成配置（全量）"
 # 执行json
 def execute_datax_tasks_execute_json(modeladmin, request, queryset):
     try:
         settings={
             "execute_way": "action",
         }
-        datax=DataXPluginManager(queryset,settings)
-        datax.execute_action()
-        messages.success(request, "执行DATAX配置JSON成功！")
+        tasks={}
+        for task in queryset:
+            tasks[task.project.engine]=tasks.get(task.project.engine,[])
+            tasks[task.project.engine].append(task)
+        for engine in tasks:
+            manage=ManagerFactory(engine)
+            manage(tasks[engine], settings).execute_action()
+            messages.success(request, f"执行{engine}任务配置成功！")
+
     except Exception as e:
         logger.exception(e)
         messages.error(request, str(e))
 
-execute_datax_tasks_execute_json.short_description = "执行DATAX当前配置JSON"
+execute_datax_tasks_execute_json.short_description = "执行当前配置"
 
 def execute_project_tasks_datax_all(modeladmin, request, queryset):
     try:
@@ -117,9 +133,10 @@ def execute_project_tasks_datax_all(modeladmin, request, queryset):
                 "execute_way": "all",
                 **project.config
             }
-            datax=DataXPluginManager(project.task_set.all(),settings)
-            datax.generate_config()
-            datax.execute_action()
+            manager_cls=ManagerFactory.get_manager(project)
+            manager=manager_cls(project.task_set.all(),settings)
+            manager.generate_config()
+            manager.execute_action()
             messages.success(request, f"项目 {project.name} 运行成功！")
     except Exception as e:
         logger.exception(e)
@@ -136,9 +153,10 @@ def execute_project_tasks_datax_update(modeladmin, request, queryset):
                     "execute_way": "update",
                     **project.config
                 }
-                datax=DataXPluginManager(project.task_set.all(),settings)
-                datax.generate_config()
-                datax.execute_action()
+                manager_cls=ManagerFactory.get_manager(project)
+                manager=manager_cls(project.task_set.all(),settings)
+                manager.generate_config()
+                manager.execute_action()
         except Exception as e:
             logger.exception(e)
     def _batch_execute():
@@ -152,11 +170,14 @@ execute_project_tasks_datax_update.short_description = "执行项目任务（更
 def log_retry(modeladmin, request, queryset):
     def _execute():
         try:
-            logs=[]
+            logs={}
             for log in queryset:
                 if log.complit_state!=1:
-                    logs.append(log)
-            DataXPluginManager.execute_retry(logs)
+                    logs[log.task.project.engine]=logs.get(log.task.project.engine,[])
+                    logs[log.task.project.engine].append(log)
+            for engine in logs:
+                manage=ManagerFactory(engine)
+                manage.execute_retry(logs[engine])
         except Exception as e:
             logger.exception(e)
    
@@ -179,7 +200,7 @@ def disable(modeladmin, request, queryset):
 disable.short_description = "禁用"
 
 
-class DataXConfigForm(forms.Form):
+class ConfigForm(forms.Form):
     execute_way = forms.ChoiceField(
         label='执行方式',
         choices=[('update', '增量更新'), ('all', '全量同步'), ('action', '执行JSON'),('other', '其他')]
@@ -207,7 +228,7 @@ def execute_datax_tasks(modeladmin, request, queryset):
     return HttpResponseRedirect(
         f'/admin/executors/task/configure/?ids={",".join(map(str, queryset.values_list("id", flat=True)))}'
     )
-execute_datax_tasks.short_description = "执行DATAX任务"
+execute_datax_tasks.short_description = "执行任务"
 def execute_project_datax_tasks(modeladmin, request, queryset):
     # 存储选中对象的ID到session
     request.session['selected_ids'] = list(queryset.values_list('id', flat=True))
@@ -215,7 +236,7 @@ def execute_project_datax_tasks(modeladmin, request, queryset):
     return HttpResponseRedirect(
         f'/admin/executors/project/configure/?ids={",".join(map(str, queryset.values_list("id", flat=True)))}'
     )
-execute_project_datax_tasks.short_description = "执行项目DATAX任务"
+execute_project_datax_tasks.short_description = "执行项目任务"
 
 # 配置参数处理视图
 def task_configure_view(request):
@@ -233,13 +254,19 @@ def task_configure_view(request):
                 "end_time": form.cleaned_data['end_time'],
                 "partition_date": form.cleaned_data['partition_date']
             }
-            DataXPluginManager(queryset, settings).execute_tasks()
+            tasks={}
+            for task in queryset:
+                tasks[task.project.engine]=tasks.get(task.project.engine,[])
+                tasks[task.project.engine].append(task)
+            for engine in tasks:
+                manage=ManagerFactory(engine)
+                manage(tasks[engine], settings).execute_tasks()
         except Exception as e:
             logger.exception(e)
-    _execute.short_description = "执行DATAX任务"
+    _execute.short_description = "执行任务"
 
     if request.method == 'POST':
-        form = DataXConfigForm(request.POST)
+        form = ConfigForm(request.POST)
         if form.is_valid():
             # 异步执行任务
             async_task_wrapper(_execute,request)
@@ -248,7 +275,7 @@ def task_configure_view(request):
         else:
             messages.error(request, "表单验证失败，请检查输入。")
     # 初始化表单
-    form = DataXConfigForm()
+    form = ConfigForm()
     return render(request, 'admin/datax_config_form.html', {'form': form,'back_url': reverse('admin:executors_task_changelist')})
 
 def project_configure_view(request):
@@ -256,7 +283,8 @@ def project_configure_view(request):
     def _execute_task(project, settings):
         settings.update(project.config)
         tasks=Task.objects.filter(project=project,is_active=True)
-        DataXPluginManager(tasks, settings).execute_tasks()
+        manage=ManagerFactory(project.engine)
+        manage(tasks, settings).execute_tasks()
     def _execute_project():
         try:
             selected_ids = request.session.get('selected_ids', [])
@@ -278,10 +306,10 @@ def project_configure_view(request):
                         logger.error(f"任务执行失败: {str(e)}")
         except Exception as e:
             logger.exception(e)
-    _execute_project.short_description = "执行项目DATAX任务"
+    _execute_project.short_description = "执行项目任务"
                 
     if request.method == 'POST':
-        form = DataXConfigForm(request.POST)
+        form = ConfigForm(request.POST)
         if form.is_valid():
             # 从session获取选中ID
             async_task_wrapper(_execute_project,request)
@@ -291,5 +319,5 @@ def project_configure_view(request):
             messages.error(request, "表单验证失败，请检查输入。")
 
     # 初始化表单
-    form = DataXConfigForm()
+    form = ConfigForm()
     return render(request, 'admin/datax_config_form.html', {'form': form,'back_url': reverse('admin:executors_project_changelist')})

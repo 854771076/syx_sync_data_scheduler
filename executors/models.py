@@ -11,6 +11,8 @@ from django.contrib.auth.models import User
 class Tenant(models.Model):
     name = models.CharField(max_length=255, verbose_name="租户名称", db_index=True)
     description = models.TextField(verbose_name="租户描述",default="",null=True,blank=True)
+    # 队列
+    queue = models.CharField(max_length=255, verbose_name="队列",default="default",null=True,blank=True)
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="更新时间")
     def __str__(self):
@@ -48,12 +50,12 @@ class Notification(models.Model):
 class Project(models.Model):
     class Engine(models.TextChoices):
         DATAX = "datax", "DataX"
-        # SPARK = "spark", "Spark"
+        SPARK = "spark", "Spark"
         # FLINK = "flink", "Flink"
     name = models.CharField(max_length=255, verbose_name="项目名称", db_index=True)
     description = models.TextField(verbose_name="项目描述")
     engine = models.CharField(max_length=255, verbose_name="项目引擎", choices=Engine.choices,default=Engine.DATAX)
-    config=models.JSONField(verbose_name='项目配置,{"cron": "05 00 * * *", "max_worker": 10, "DATAX_JVM_OPTIONS": "-Xms1g -Xmx2g"}',default=dict,null=True,blank=True)
+    config=models.JSONField(verbose_name='项目配置,{"cron": "05 00 * * *", "max_worker": 10, "DATAX_JVM_OPTIONS": "-Xms1g -Xmx2g","SPARK_CONF":"--driver-memory  4G  --executor-memory 10G   --num-executors 5 --executor-cores 2"',default=dict,null=True,blank=True)
     # 租户
     tenant = models.ForeignKey(Tenant, on_delete=models.SET_DEFAULT, verbose_name="关联租户",default=1,null=True,blank=True)
     # 通知配置
@@ -98,8 +100,8 @@ class Connection(models.Model):
     data_source = models.OneToOneField(DataSource, on_delete=models.CASCADE, verbose_name="关联数据源")
     host = models.CharField(max_length=255, verbose_name="主机地址", db_index=True)
     port = models.IntegerField(verbose_name="端口", db_index=True)
-    username = models.CharField(max_length=255, verbose_name="用户名")
-    password = models.CharField(max_length=255, verbose_name="密码")
+    username = models.CharField(max_length=255, verbose_name="用户名",null=True,blank=True)
+    password = models.CharField(max_length=255, verbose_name="密码",null=True,blank=True)
     charset = models.CharField(max_length=50, verbose_name="字符集",default="utf8mb4",null=True,blank=True)
     params=models.JSONField(verbose_name="参数",default=dict,null=True,blank=True)
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
@@ -202,8 +204,10 @@ class Task(models.Model):
     is_add_sync_time = models.BooleanField(default=False, verbose_name="是否添加同步时间字段")
     update_column = models.CharField(max_length=255, null=True, blank=True, verbose_name="更新字段", default="create_time")
     # 启动参数配置
-    config = models.JSONField(verbose_name='启动参数配置,{"jvm_options": "-Xms5g -Xmx10g","session":[],"preSql":[],"compress":"NONE","fieldDelimiter":"\\u0001","fileType":"text"或"orc"}', default=dict, null=True, blank=True)
+    config = models.JSONField(verbose_name='启动参数配置,{"jvm_options": "-Xms5g -Xmx10g","session":[],"preSql":[],"compress":"NONE","fieldDelimiter":"\\u0001","fileType":"text"或"orc","SPARK_CONF":"--driver-memory  4G  --executor-memory 10G   --num-executors 5 --executor-cores 2"}', default=dict, null=True, blank=True)
     datax_json=models.JSONField(verbose_name="最新DataX任务JSON",default=dict,null=True,blank=True)
+    spark_code=models.TextField(verbose_name="最新Spark任务代码",default="",null=True,blank=True)
+    is_custom_script=models.BooleanField(default=False, verbose_name="是否自定义脚本(启用则不会再生成脚本)")
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="更新时间")
     @property
@@ -259,6 +263,7 @@ class Log(models.Model):
     t_num_0 = models.IntegerField(verbose_name="数据量为零的分表数",null=True,blank=True)
     map_input_nums = models.IntegerField(verbose_name=" 拉取数量统计",null=True,blank=True)
     datax_json=models.JSONField(verbose_name="DataX任务",default=dict,null=True,blank=True)
+    spark_code=models.TextField(verbose_name="Spark任务",default="",null=True,blank=True)
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="更新时间")
     

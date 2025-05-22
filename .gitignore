@@ -15,3 +15,5 @@ bin/启信宝测试配置.py
 bin/启信宝配置.py
 backups
 metastore_db
+*logs
+*output
