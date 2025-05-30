@@ -22,7 +22,14 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.1/howto/deployment/checklist/
+SESSION_COOKIE_SECURE = False  # 如果使用 HTTPS 需要改为 True
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = 'Lax'  # 现代浏览器需要此设置
+SESSION_COOKIE_NAME = 'syx_sessionid'  # 自定义会话 Cookie 名称
+SESSION_COOKIE_AGE = 3600 * 24 * 7  # 会话有效期（秒）
 
+# CORS 配置（如果使用跨域）
+CORS_ALLOW_CREDENTIALS = True
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.getenv('SECRET_KEY')
 

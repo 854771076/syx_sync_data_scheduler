@@ -185,10 +185,10 @@ class Task(models.Model):
     is_active = models.BooleanField(default=True, verbose_name="是否启用")
     name = models.CharField(max_length=255, verbose_name="任务名称")
     description = models.TextField(verbose_name="任务描述", null=True, blank=True)
-    source_db = models.CharField(max_length=80, verbose_name="源数据库名称")
-    source_table = models.CharField(max_length=80, verbose_name="源表名称")
-    target_db = models.CharField(max_length=80, verbose_name="目标数据库名称")
-    target_table = models.CharField(max_length=80, verbose_name="目标表名称")
+    source_db = models.CharField(max_length=255, verbose_name="源数据库名称")
+    source_table = models.CharField(max_length=255, verbose_name="源表名称")
+    target_db = models.CharField(max_length=255, verbose_name="目标数据库名称")
+    target_table = models.CharField(max_length=255, verbose_name="目标表名称")
     is_delete = models.BooleanField(default=False, verbose_name="是否删除")
     split_config = models.ForeignKey(SplitConfig, on_delete=models.SET_NULL, verbose_name="分库分表配置", null=True, blank=True)
     # column_config = models.ForeignKey(ColumnConfig, on_delete=models.SET_NULL, verbose_name="字段配置", null=True, blank=True)
@@ -335,33 +335,16 @@ class AsyncTaskStatus(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
 
-# @receiver(post_save, sender=Task)
-# def sync_table_metadata(sender, instance:Task, created, **kwargs):
-#     from executors.extensions.metadata.utils import DatabaseTableHandler
-#     """监听任务创建/更新，同步表元数据"""
-#     try:
-#         tables=DatabaseTableHandler.split(instance)
-        
-#         config=dict(ConfigItem.objects.all().values_list("key", "value"))
-#         # 同步源表元数据
-#         _sync_single_metadata(
-#             instance.data_source,
-#             instance.source_db,
-#             instance.source_table,
-#             config,
-#             tables
-
-#         )
-#         # 同步目标表元数据
-#         _sync_single_metadata(
-#             instance.data_target,
-#             instance.target_db,
-#             instance.target_table,
-#             config
-#         )
-#         logger.info(f"任务 {instance.name} 的元数据已同步")
-#     except Exception as e:
-#         logger.error(e)
+@receiver(post_save, sender=Task)
+def sync_table_metadata(sender, instance:Task, created, **kwargs):
+    from executors.extensions.metadata.utils import DatabaseTableHandler
+    """监听任务创建/更新，同步表元数据"""
+    try:
+        MetadataTable.objects.filter(data_source=instance.data_source,
+        db_name=instance.source_db,
+        name=instance.source_table).delete()
+    except Exception as e:
+        logger.error(e)
 def _sync_single_metadata(data_source:DataSource, db_name:str, table_name:str,config,tables=[]):
     """同步单个表的元数据"""
     from executors.extensions.metadata.utils import DatabaseTableHandler,HiveUtil,MysqlUtil

@@ -23,7 +23,8 @@ class settings:
     end_time = None
     partition_date = None
     max_worker = None
-
+import threading
+lock=threading.Lock()
 
 class DataXPluginManager:
     def __init__(self, tasks, settings: settings = {}):
@@ -101,7 +102,7 @@ class DataXPluginManager:
             futures=[]
             for log in logs:
                 settings={
-                    "execute_way": 'retry',
+                    "execute_way": log.execute_way,
                     **log.task.project.config,
                     'partition_date':log.partition_date,
                     'start_time':log.start_time,
@@ -116,7 +117,31 @@ class DataXPluginManager:
                 except Exception as e:
                     logger.exception(e)
                     continue
-
+    @staticmethod
+    def execute_retry_new( logs):
+        """执行Spark任务"""
+        from ...models import ConfigItem
+        config = dict(ConfigItem.objects.all().values_list("key", "value"))
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            futures=[]
+            for log in logs:
+                settings={
+                    "execute_way": log.execute_way,
+                    **log.task.project.config,
+                    'partition_date':log.partition_date,
+                    'start_time':log.start_time,
+                    'end_time':log.end_time,
+                    'today':datetime.strptime(log.partition_date,'%Y%m%d')+timedelta(1) ,
+                    'yesterday':datetime.strptime(log.partition_date,'%Y%m%d'),
+                }
+                task = DataXPlugin(log.task, config, settings)
+                futures.append(pool.submit(task.execute_retry_new, log))
+            for future in as_completed(futures):
+                try:
+                    result = future.result()
+                except Exception as e:
+                    logger.exception(e)
+                    continue
     def generate_config(self):
         """生成DataX配置"""
         for task in self.plugins:
@@ -210,9 +235,26 @@ class DataXPlugin:
 
             self.task.datax_json = config
             self.task.save()
+            # 读取任务中的json
+            config = self.task.datax_json
+        else:
+            # 读取任务中的json
+            config = self.task.datax_json
+            # 替换配置中的变量
+            config = json.loads(
+                json.dumps(config)
+                .replace("${source_db}", self.task.source_db)
+                .replace("${source_table}", self.task.source_table)
+                .replace("${target_db}", self.task.target_db)
+                .replace("${target_table}", self.task.target_table)
+                .replace("${partition_date}", self.settings.get("partition_date"),"")
+                .replace("${today}", self.settings.get("today").strftime("%Y-%m-%d"),"")
+                .replace("${yesterday}", self.settings.get("yesterday").strftime("%Y-%m-%d"),"")
+                .replace("${start_time}", self.settings.get("start_time"),"")
+                .replace("${end_time}", self.settings.get("end_time"),"")
+                .replace("${execute_way}", self.settings.get("execute_way"),"")
+            )
         
-        # 读取任务中的json
-        config = self.task.datax_json
         config_path = self.output_dir / f"{self.task.id}.json"
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(config, f, ensure_ascii=False, indent=4)
@@ -226,7 +268,10 @@ class DataXPlugin:
             json.dump(config, f, ensure_ascii=False, indent=4)
         self.jvm_options="-Xms3g -Xmx10g"
         result = self.execute_datax(retry=True)
-
+    def execute_retry_new(self, log):
+        """执行DataX任务"""
+        self.jvm_options="-Xms3g -Xmx10g"
+        result = self.execute_datax()
     def is_completed(self):
         from ...models import Task, ConfigItem, Log
 
@@ -255,14 +300,15 @@ class DataXPlugin:
     def pre_execute(self):
         """预执行"""
         if self.task.is_partition and self.target.type in ["hive","hdfs"] :
-            hive=HiveUtil.get_hive_client_by_config(self.config,self.target)
-            HiveUtil.add_partition(
-                hive,
-                self.task.target_db,
-                self.task.target_table,
-                self.task.partition_column,
-                self.settings.get("partition_date"),
-            )
+            with lock:
+                hive=HiveUtil.get_hive_client_by_config(self.config,self.target)
+                HiveUtil.add_partition(
+                    hive,
+                    self.task.target_db,
+                    self.task.target_table,
+                    self.task.partition_column,
+                    self.settings.get("partition_date"),
+                )
         return True
 
     def execute(self):
@@ -514,7 +560,10 @@ class DataXPlugin:
         new_columns = []
         for column in columns:
             if column["name"] in mapping:
-                column["name"] = mapping[column["name"]]
+                name= mapping[column["name"]]
+                value=column["name"]
+                column["value"] = value
+                column["name"] = name
             new_columns.append(column)
         return new_columns
 
@@ -589,7 +638,7 @@ class Reader:
                     {
                         "name": column["name"],
                         "type": "string",
-                        "value": "NULL",
+                        "value": "NULL", 
                     }
                 )
                 self.target_columns.append(
@@ -627,19 +676,24 @@ class Reader:
             else:
                 # 共有字段
                 target_format_column = DataxTypes.format_type(column["type"])
+                if target_format_column in ['decimal']:
+                    target_format_column='string'
                 source_column=list(filter(lambda x: x["name"] == column["name"], columns_source))[0]
                 source_format_column = DataxTypes.format_type(source_column["type"])
+
                 datax_type=DataxTypes.convert_to_datax_type(self.source.type,source_format_column)
                 self.target_columns.append(
                     {
                         "name": column["name"],
                         "type": target_format_column,
+                        "value": column.get('value'),
                     }
                 )
                 self.source_columns.append(
                     {
                         "name": column["name"],
                         "type": datax_type,
+                        "value": source_column.get('value'),
                     }
                 )
         source_columns_format = DataxTypes.format_reader_schema(self.source_columns)
@@ -707,7 +761,7 @@ class Reader:
                     {
                         "querySql": querySql,
                         "jdbcUrl": [
-                            f"jdbc:mysql://{self.source.connection.host}:{self.source.connection.port}?useSSL=false&useUnicode=true&characterEncoding=utf8"
+                            f"jdbc:mysql://{self.source.connection.host}:{self.source.connection.port}?useSSL=false&useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai"
                         ],
                     }
                 ],

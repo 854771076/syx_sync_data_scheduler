@@ -40,14 +40,14 @@ class DatabaseTableHandler:
             # tb_time_suffix_end_time
             # assert task.split_config.tb_time_suffix_end_time is not None, 'tb_time_suffix_end_time is None'
             if task.split_config.tb_time_suffix_end_time is None:
-                tb_time_suffix_end_time=datetime.now().date()
+                tb_time_suffix_end_time=datetime.now().date()-timedelta(days=task.split_config.tb_time_suffix_update_frequency-1)
             else:
                 tb_time_suffix_end_time=task.split_config.tb_time_suffix_end_time
             if execute_way=='all':
                 time_list=DatabaseTableHandler.get_time_list(task.split_config.tb_time_suffix_start_time,tb_time_suffix_end_time,task.split_config.tb_time_suffix_format)
             else:
                 assert task.split_config.tb_time_suffix_update_frequency is not None, 'tb_time_suffix_update_frequency is None'
-                time_list=DatabaseTableHandler.get_time_list(datetime.now().date()-timedelta(days=task.split_config.tb_time_suffix_update_frequency),datetime.now().date(),task.split_config.tb_time_suffix_format)
+                time_list=DatabaseTableHandler.get_time_list(datetime.now().date()-timedelta(days=task.split_config.tb_time_suffix_update_frequency),datetime.now().date()-timedelta(days=task.split_config.tb_time_suffix_update_frequency-1),task.split_config.tb_time_suffix_format)
             for time in time_list:
                 tables.append(format_name + '_' + time)
             return tables
@@ -96,13 +96,13 @@ class DatabaseTableHandler:
             if task.split_config.custom_split_db_list and task.split_config.custom_split_db_list:
                 for db in task.split_config.custom_split_db_list:
                     for tb in task.split_config.custom_split_tb_list:
-                        tables.append(task.source_db+'_'+db + '.' + task.source_table+'_'+tb)
+                        tables.append(task.source_db+db + '.' + task.source_table+tb)
             if task.split_config.custom_split_db_list and not task.split_config.custom_split_tb_list:
                 for db in task.split_config.custom_split_db_list:
-                    tables.append(task.source_db+'_'+db + '.' + task.source_table)
+                    tables.append(task.source_db+db + '.' + task.source_table)
             if not task.split_config.custom_split_db_list and task.split_config.custom_split_tb_list:
                 for tb in task.split_config.custom_split_tb_list:
-                    tables.append(task.source_db + '.' + task.source_table+'_'+tb)
+                    tables.append(task.source_db + '.' + task.source_table+tb)
         return tables 
 
 # Hive工具类
@@ -160,6 +160,9 @@ class HiveUtil:
         cursor = hive_client.cursor()
         # 切换数据库
         cursor.execute(f"USE {database_name}")
+        # 删除分区
+        cursor.execute(f"ALTER TABLE {table_name} DROP IF EXISTS PARTITION ({partition_columns}='{partition}')")
+        hive_client.commit()
         # 添加分区
         cursor.execute(f"ALTER TABLE {table_name} ADD IF NOT EXISTS PARTITION ({partition_columns}='{partition}')")
         hive_client.commit()

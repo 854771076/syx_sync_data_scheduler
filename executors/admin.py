@@ -33,8 +33,8 @@ class ProjectAdmin(admin.ModelAdmin):
     list_display = ('id','name','is_active','tenant', 'description','engine','config', 'created_at','updated_at')
     search_fields = ('name',)
     list_display_links = ('id','name')
-    list_filter = ('created_at',)
-    inlines = [TaskInline]
+    list_filter = ('engine', 'is_active', 'tenant')
+    # inlines = [TaskInline]
     ordering = ('-created_at','-updated_at')
     actions = [execute_project_tasks_datax_all,execute_project_tasks_datax_update]
     actions=[copy_data,init_scheduler,execute_project_datax_tasks,enable,disable]
@@ -195,19 +195,19 @@ class TaskAdmin(admin.ModelAdmin):
 
 @admin.register(Log)
 class LogAdmin(admin.ModelAdmin):
-    list_display = ('id','task','partition_date', 'execute_way', 'complit_state_format', 'project','source_db','source_table','target_db','target_table', 'start_time', 'end_time', 'numrows')
-    search_fields = ('task__name','partition_date', 'project')
+    list_display = ('id','task','partition_date', 'execute_way', 'numrows', 'complit_state_format','execute_time', 'project','source_db','source_table','target_db','target_table','local_row_update_time_start','local_row_update_time_end')
+    search_fields = ('task__name','task__id','partition_date')
     list_filter = ('execute_way','partition_date','executed_state','task__project__name')
-    readonly_fields = ('task','source_db','source_table','target_db','target_table','partition_date', 'execute_way', 'executed_state','start_time', 'end_time', 'numrows', 'created_at', 'updated_at','log_file','datax_json')
+    readonly_fields = ('task','source_db','source_table','target_db','target_table','partition_date', 'execute_way', 'executed_state','local_row_update_time_start','local_row_update_time_end','start_time', 'end_time', 'numrows', 'created_at', 'updated_at','log_file','datax_json')
     list_display_links = ('task','id')
-    actions = [log_retry]
+    actions = [log_retry,log_retry_new]
     ordering = ('-created_at','-updated_at')
     fieldsets = (
         ('基础信息', {
             'fields': (
                 'task',
                 'source_db','source_table','target_db','target_table',
-                'partition_date', 'execute_way', 'executed_state','start_time', 'end_time', 'numrows'
+                'partition_date', 'execute_way', 'executed_state','start_time', 'end_time', 'numrows','local_row_update_time_start','local_row_update_time_end','execute_time'
             )
         }),
         ('日志信息', {
@@ -227,7 +227,11 @@ class LogAdmin(admin.ModelAdmin):
 
 
     )
-    
+    # 执行时间local_row_update_time_end-local_row_update_time_start
+    @admin.display(description='执行时间')
+    def execute_time(self, obj):
+        if obj.local_row_update_time_end and obj.local_row_update_time_start:
+            return obj.local_row_update_time_end - obj.local_row_update_time_start
     @admin.display(description='日志详细')
     def log_file(self, obj):
         
@@ -305,7 +309,7 @@ class NotificationAdmin(admin.ModelAdmin):
     fieldsets = (
         ('基础信息', {
             'fields': (
-                'name', 'engine','description'
+                'name','config','template', 'engine','description'
             )
         }), 
         ('系统信息', {

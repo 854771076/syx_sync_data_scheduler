@@ -184,8 +184,25 @@ def log_retry(modeladmin, request, queryset):
     _execute.short_description = "日志重试"
     async_task_wrapper(_execute,request)
     messages.success(request, "日志重试提交执行成功！")
-log_retry.short_description = "重新执行"
-
+log_retry.short_description = "重新执行原任务"
+def log_retry_new(modeladmin, request, queryset):
+    def _execute():
+        try:
+            logs={}
+            for log in queryset:
+                if log.complit_state!=1:
+                    logs[log.task.project.engine]=logs.get(log.task.project.engine,[])
+                    logs[log.task.project.engine].append(log)
+            for engine in logs:
+                manage=ManagerFactory(engine)
+                manage.execute_retry_new(logs[engine])
+        except Exception as e:
+            logger.exception(e)
+   
+    _execute.short_description = "日志重试"
+    async_task_wrapper(_execute,request)
+    messages.success(request, "日志重试提交执行成功！")
+log_retry_new.short_description = "重新执行"
 # 启用
 def enable(modeladmin, request, queryset):
     queryset.update(is_active=True)

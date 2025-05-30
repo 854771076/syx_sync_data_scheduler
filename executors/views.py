@@ -2,6 +2,7 @@ from django.shortcuts import render
 from .models import Log
 from django.db.models import Count
 from rest_framework.views import APIView
+from django.db.models import ExpressionWrapper, DurationField
 from rest_framework.response import Response
 from rest_framework import status
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -152,7 +153,7 @@ def init_scheduler_task():
     # 检查日志
     scheduler.add_job(
         check_logs,
-        trigger=CronTrigger.from_crontab('30 09 * * *'),  # 每5分钟执行一次
+        trigger=CronTrigger.from_crontab('30 9,12,23 * * *'),
         id='检查日志', 
         replace_existing=True,
         misfire_grace_time=3600
@@ -160,7 +161,7 @@ def init_scheduler_task():
     scheduler.add_job(
         update_all_tasks_metadata,
         # 每天执行一次
-        trigger=CronTrigger.from_crontab('0 0 * * *'),
+        trigger=CronTrigger.from_crontab('0 0,12 * * *'),
         id='更新元数据', 
         replace_existing=True,
         misfire_grace_time=3600
@@ -168,7 +169,7 @@ def init_scheduler_task():
     scheduler.add_job(
         check_logs_and_retry,
         # 每天执行一次
-        trigger=CronTrigger.from_crontab('0 6 * * *'),
+        trigger=CronTrigger.from_crontab('0 6,18,23 * * *'),
         id='重试任务', 
         replace_existing=True,
         misfire_grace_time=3600
@@ -248,7 +249,8 @@ class LogStatisticsAPI(APIView):
             count=Count('id'),
             avg_time=Avg(F('end_time') - F('start_time'))
         ).order_by()
-
+        # `end_time` datetime(6) DEFAULT NULL,
+        # `start_time` datetime(6) DEFAULT NULL,
         # 项目统计
         project_stats = Log.objects.filter(filters).values('task__project__name').annotate(
             success=Count('id', filter=Q(executed_state='success')),
@@ -256,15 +258,19 @@ class LogStatisticsAPI(APIView):
             running=Count('id', filter=Q(executed_state='process')),
             bak=Count('id', filter=Q(executed_state='bak')),
             total=Count('id'),
-            avg_time=Avg(F('end_time') - F('start_time'))
+            avg_time=Avg(
+                ExpressionWrapper(F('local_row_update_time_end') - F('local_row_update_time_start'), output_field=DurationField())
+            )
         ).order_by('task__project__name')
-
+        
         # 每日统计
         daily_stats = Log.objects.filter(filters).extra(
             select={'day': 'DATE(executors_log.updated_at)'}
         ).values('day').annotate(
             count=Count('id'),
-            avg_time=Avg(F('end_time') - F('start_time'))
+            avg_time=Avg(
+                ExpressionWrapper(F('local_row_update_time_end') - F('local_row_update_time_start'), output_field=DurationField())
+            )
         ).order_by('day')
 
         # 处理状态统计结果

@@ -61,7 +61,10 @@ class SparkReader:
         
         # 带认证的URI格式
         auth_part = f"{username}:{password}@" if username and password else ""
-        mongo_uri = f"mongodb://{auth_part}{cls.source.connection.host}:{cls.source.connection.port}/admin"
+        if not cls.source.connection.params.get('uri'):
+            mongo_uri = f"mongodb://{auth_part}{cls.source.connection.host}:{cls.source.connection.port}/admin"
+        else:
+            mongo_uri = cls.source.connection.params.get('uri')
 
         # 处理日期格式
         today_str = f"datetime.strptime('{cls.settings.get('today')}', '%Y-%m-%d')"
@@ -118,18 +121,21 @@ class SparkWriter:
     def other2hive(cls):
         if cls.task.is_partition:
             partition_sql=f'df = df.withColumn("partition_date", F.lit("{cls.settings.get("partition_date")}"))\n'
-        if cls.settings.get("execute_way")=='all':
-            insert_sql=f'df.write.mode("overwrite").partitionBy("partition_date").format("orc").saveAsTable("{cls.task.target_db}.{cls.task.target_table}")'
-        elif cls.settings.get("execute_way")=='update':
-            if cls.task.is_delete:
-                insert_sql=f'df.createOrReplaceTempView("temp_table_{cls.task.target_db}.{cls.task.target_table}")\n    spark.sql(\'INSERT OVERWRITE  INTO TABLE {cls.task.target_db}.{cls.task.target_table} PARTITION (partition_date = "{cls.settings.get("partition_date")}") SELECT * FROM temp_table_{cls.task.target_db}.{cls.task.target_table}\')'
-            insert_sql=f'df.createOrReplaceTempView("temp_table_{cls.task.target_db}.{cls.task.target_table}")\n    spark.sql(\'INSERT INTO TABLE {cls.task.target_db}.{cls.task.target_table} PARTITION (partition_date = "{cls.settings.get("partition_date")}") SELECT * FROM temp_table_{cls.task.target_db}.{cls.task.target_table}\')'
-        elif cls.settings.get("execute_way")=='other':
-            if cls.task.is_delete:
-                insert_sql=f'df.createOrReplaceTempView("temp_table_{cls.task.target_db}.{cls.task.target_table}")\n    spark.sql(\'INSERT OVERWRITE  INTO TABLE {cls.task.target_db}.{cls.task.target_table} PARTITION (partition_date = "{cls.settings.get("partition_date")}") SELECT * FROM temp_table_{cls.task.target_db}.{cls.task.target_table}\')'
-            insert_sql=f'df.createOrReplaceTempView("temp_table_{cls.task.target_db}.{cls.task.target_table}")\n    spark.sql(\'INSERT INTO TABLE {cls.task.target_db}.{cls.task.target_table} PARTITION (partition_date = "{cls.settings.get("partition_date")}") SELECT * FROM temp_table_{cls.task.target_db}.{cls.task.target_table}\')'
+            if cls.settings.get("execute_way")=='all':
+                insert_sql=f'df.write.mode("overwrite").partitionBy("partition_date").format("orc").saveAsTable("{cls.task.target_db}.{cls.task.target_table}")'
+            elif cls.settings.get("execute_way")=='update':
+                if cls.task.is_delete:
+                    insert_sql=f'df.createOrReplaceTempView("temp_table_{cls.task.target_db}.{cls.task.target_table}")\n    spark.sql(\'INSERT OVERWRITE  INTO TABLE {cls.task.target_db}.{cls.task.target_table} PARTITION (partition_date = "{cls.settings.get("partition_date")}") SELECT * FROM temp_table_{cls.task.target_db}.{cls.task.target_table}\')'
+                insert_sql=f'df.createOrReplaceTempView("temp_table_{cls.task.target_db}.{cls.task.target_table}")\n    spark.sql(\'INSERT INTO TABLE {cls.task.target_db}.{cls.task.target_table} PARTITION (partition_date = "{cls.settings.get("partition_date")}") SELECT * FROM temp_table_{cls.task.target_db}.{cls.task.target_table}\')'
+            elif cls.settings.get("execute_way")=='other':
+                if cls.task.is_delete:
+                    insert_sql=f'df.createOrReplaceTempView("temp_table_{cls.task.target_db}.{cls.task.target_table}")\n    spark.sql(\'INSERT OVERWRITE  INTO TABLE {cls.task.target_db}.{cls.task.target_table} PARTITION (partition_date = "{cls.settings.get("partition_date")}") SELECT * FROM temp_table_{cls.task.target_db}.{cls.task.target_table}\')'
+                insert_sql=f'df.createOrReplaceTempView("temp_table_{cls.task.target_db}.{cls.task.target_table}")\n    spark.sql(\'INSERT INTO TABLE {cls.task.target_db}.{cls.task.target_table} PARTITION (partition_date = "{cls.settings.get("partition_date")}") SELECT * FROM temp_table_{cls.task.target_db}.{cls.task.target_table}\')'
+            else:
+                raise Exception("Unsupported execute_way: {}".format(cls.settings.get("execute_way")))
         else:
-            raise Exception("Unsupported execute_way: {}".format(cls.settings.get("execute_way")))
+            partition_sql=''
+            insert_sql=f'df.write.mode("overwrite").format("orc").saveAsTable("{cls.task.target_db}.{cls.task.target_table}")'
         code_template = f"""
 def writer(spark,df):
     logger.info("开始处理 {cls.task.target_db}.{cls.task.target_table}")
@@ -228,7 +234,7 @@ class SparkPluginManager:
             futures=[]
             for log in logs:
                 settings={
-                    "execute_way": 'retry',
+                    "execute_way": log.execute_way,
                     **log.task.project.config,
                     'partition_date':log.partition_date,
                     'start_time':log.start_time,
@@ -243,7 +249,32 @@ class SparkPluginManager:
                 except Exception as e:
                     logger.exception(e)
                     continue
-
+    @staticmethod
+    def execute_retry_new( logs):
+        """执行Spark任务"""
+        from ...models import ConfigItem
+        config = dict(ConfigItem.objects.all().values_list("key", "value"))
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            futures=[]
+            for log in logs:
+                settings={
+                    "execute_way": log.execute_way,
+                    **log.task.project.config,
+                    'partition_date':log.partition_date,
+                    'start_time':log.start_time,
+                    'end_time':log.end_time,
+                    'today':datetime.strptime(log.partition_date,'%Y%m%d')+timedelta(1) ,
+                    'yesterday':datetime.strptime(log.partition_date,'%Y%m%d'),
+                    
+                }
+                task = SparkPlugin(log.task, config, settings)
+                futures.append(pool.submit(task.execute_retry_new, log))
+            for future in as_completed(futures):
+                try:
+                    result = future.result()
+                except Exception as e:
+                    logger.exception(e)
+                    continue
     def generate_config(self):
         """生成Spark配置"""
         for task in self.plugins:
@@ -265,6 +296,10 @@ class SparkPlugin:
         self.spark_conf = self.task.config.get(
             "SPARK_CONF",
             task.project.config.get("SPARK_CONF", self.config.get("SPARK_CONF", "")),
+        )
+        self.master=self.task.config.get(
+            "SPARK_MASTER",
+            task.project.config.get("SPARK_MASTER", self.config.get("SPARK_MASTER", "local[*]")), 
         )
         self.jars_dir=Path(__file__).parent / "jars"
         self.source = self.task.data_source
@@ -296,10 +331,11 @@ class SparkPlugin:
         code ='if __name__ == "__main__":\n'
         code +='    spark = SparkSession.builder \\\n'
         code +=f'        .appName("{self.task.name}") \\\n'
+        code +=f'       .master("{self.master}") \\\n'
         code +='        .getOrCreate()\n'
         code +='    df=reader(spark)\n'
         code +='    num=writer(spark,df)\n'
-        code +='    logger.info(f"读出记录总数:{num}")\n'
+        code +='    logger.info(f"读出记录总数:{num}|")\n'
         code +='    spark.stop()\n'
         return code
 
@@ -318,7 +354,19 @@ class SparkPlugin:
             self.task.spark_code = code
             self.task.save()
         else:
-            code = self.task.spark_code
+            code = (
+                self.task.spark_code
+                .replace("${source_db}", self.task.source_db)
+                .replace("${source_table}", self.task.source_table)
+                .replace("${target_db}", self.task.target_db)
+                .replace("${target_table}", self.task.target_table)
+                .replace("${partition_date}", self.settings.get("partition_date",""))
+                .replace("${today}", self.settings.get("today").strftime("%Y-%m-%d"),"")
+                .replace("${yesterday}", self.settings.get("yesterday").strftime("%Y-%m-%d"),"")
+                .replace("${start_time}", self.settings.get("start_time"),"")
+                .replace("${end_time}", self.settings.get("end_time"),"")
+                .replace("${execute_way}", self.settings.get("execute_way"),"")
+            )
         code_path = self.output_dir / f"{self.task.id}.py"
         with open(code_path, "w", encoding="utf-8") as f:
             f.write(code)
@@ -332,7 +380,13 @@ class SparkPlugin:
         with open(config_path, "w", encoding="utf-8") as f:
             f.write(config)
         result = self.execute_spark( retry=True)
-
+    def execute_retry_new(self, log):
+        """执行Spark任务"""
+        config = log.spark_code
+        config_path = self.output_dir / f"{self.task.id}_retry.py"
+        with open(config_path, "w", encoding="utf-8") as f:
+            f.write(config)
+        result = self.execute_spark()
     def is_completed(self):
         from ...models import Task, ConfigItem, Log
 
@@ -400,7 +454,10 @@ class SparkPlugin:
                 log_path = partition_path / f"{cls.task.id}.log"
             start_time=datetime.now()
             # 判断系统
-            command = f'spark-submit    --master yarn  --queue {cls.task.project.tenant.queue} --jars {cls.jars_dir}/*.jar {cls.spark_conf} {config_path} > {log_path} 2>&1'
+            if cls.master.find('yarn')!=-1:
+                command = f'export HADOOP_USER_NAME={cls.task.project.tenant.name}&&export PYSPARK_PYTHON="/home/anaconda3/bin/python3"&&spark-submit    --master yarn  --queue {cls.task.project.tenant.queue} --jars $(echo {cls.jars_dir}/*.jar | tr " " ",") {cls.spark_conf} {config_path} > {log_path} 2>&1'
+            else:
+                command = f'export HADOOP_USER_NAME={cls.task.project.tenant.name}&&export PYSPARK_PYTHON="/home/anaconda3/bin/python3"&&spark-submit  --queue {cls.task.project.tenant.queue} --jars $(echo {cls.jars_dir}/*.jar | tr " " ",") {cls.spark_conf} {config_path} > {log_path} 2>&1'
             # 执行中日志
             logger.info(f"执行 Spark 任务 {cls.task.id}，命令：{command}")
             log_obj, created = Log.objects.get_or_create(
