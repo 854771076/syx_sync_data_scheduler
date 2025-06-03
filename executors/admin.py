@@ -157,6 +157,7 @@ class TaskAdmin(admin.ModelAdmin):
                 ('target_db', 'target_table'),
                 ('is_active', 'is_delete'),
                 'split_config',
+                'task_log_dependency'
             )
         }),
         ('字段配置', {
@@ -404,3 +405,29 @@ class AsyncTaskStatusAdmin(admin.ModelAdmin):
             return format_html('<span style="color: #008000;">{}</span>', obj.status)  # 绿色
         elif obj.status =='failed':
             return format_html('<span style="color: #FF0000;">{}</span>', obj.status)  # 红色
+        
+
+@admin.register(TaskLogDependency)
+class TaskLogDependencyAdmin(admin.ModelAdmin):
+    list_display = ('id','name','data_source','description', 'created_at', 'updated_at')
+    search_fields = ('data_source__name','description')
+    list_filter = ('created_at',)
+    list_display_links = ('id','data_source')
+    ordering = ('-created_at','-updated_at')
+    readonly_fields = ('created_at', 'updated_at')
+    actions=[copy_data]
+    fieldsets = (
+        ('基础信息', {
+            'fields': (
+                'name','data_source','description', 'query_template'
+            ) 
+        }) ,
+        (
+            '系统信息', {
+                'classes': ('collapse','readonly'),
+                'fields': (
+                    'created_at', 'updated_at'
+                )
+            }
+        )
+    )

@@ -166,6 +166,10 @@ SIMPLEUI_CONFIG = {
                  {
                  'name': '执行状态',
                  'url': '/admin/executors/asynctaskstatus/', 
+                 },
+                 {
+                 'name': '任务依赖',
+                 'url': '/admin/executors/tasklogdependency/', 
                  }
              ]
          },

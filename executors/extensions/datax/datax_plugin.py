@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Union, List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, date
-import os
+import os,time
 from ..metadata.utils import (
     DatabaseTableHandler,
     HiveUtil,
@@ -281,10 +281,24 @@ class DataXPlugin:
             partition_date=self.settings.get("partition_date"),
             complit_state=Log.complitStateChoices.success,
         ).exists()
+    # 是否有依赖
+    def is_depend(self):
+        task_log_dependency=self.task.task_log_dependency
+        if not task_log_dependency:
+            return True
+        else:
+            status=task_log_dependency.is_executable(**{
+                **self.settings,
+                "source_db":self.task.source_db,
+                "source_table":self.task.source_table,
+                "target_db":self.task.target_db,
+                "target_table":self.task.target_table,
+                'id':self.task.id,
 
+            })
+            return status
     def execute_action(self):
         """执行DataX任务"""
-        self.pre_execute()
         logger.info(
             f"[datax_plugin]:task {self.task.id} 开始执行--{self.settings.get('execute_way')}--{self.settings.get('partition_date')}"
         )
@@ -313,6 +327,9 @@ class DataXPlugin:
 
     def execute(self):
         """执行DataX任务"""
+        while not self.is_depend():
+            logger.info(f"[datax_plugin]:task {self.task.id} 依赖未执行，等待中")
+            time.sleep(60)
         if self.is_completed():
             logger.info(f"[datax_plugin]:task {self.task.id} 当日已执行，跳过")
             return False
@@ -338,10 +355,14 @@ class DataXPlugin:
                 log_path = partition_path / f"{cls.task.id}.log"
             start_time=datetime.now()
             # 判断系统
-            if os.name == 'nt':
-                command = f'set HADOOP_USER_NAME={cls.task.project.tenant.name}&&{cls.config["PYTHON_BIN_PATH"]} {cls.config["DATAX_BIN_PATH"]} --jvm="{cls.jvm_options}" {config_path} > {log_path}'
+            if cls.config.get('ENV')=='prod':
+                DATAX_BIN_PATH=cls.config.get('DATAX_BIN_PATH')
             else:
-                command = f'HADOOP_USER_NAME={cls.task.project.tenant.name} {cls.config["PYTHON_BIN_PATH"]} {cls.config["DATAX_BIN_PATH"]} --jvm="{cls.jvm_options}" {config_path} > {log_path}'
+                DATAX_BIN_PATH=cls.config.get('DATAX_BIN_PATH_DEV')
+            if os.name == 'nt':
+                command = f'set HADOOP_USER_NAME={cls.task.project.tenant.name}&&{cls.config["PYTHON_BIN_PATH"]} {DATAX_BIN_PATH} --jvm="{cls.jvm_options}" {config_path} > {log_path}'
+            else:
+                command = f'HADOOP_USER_NAME={cls.task.project.tenant.name} {cls.config["PYTHON_BIN_PATH"]} {DATAX_BIN_PATH} --jvm="{cls.jvm_options}" {config_path} > {log_path}'
             # 执行中日志
             logger.info(f"执行 DataX 任务 {cls.task.id}，命令：{command}")
             log_obj, created = Log.objects.get_or_create(
@@ -372,9 +393,10 @@ class DataXPlugin:
                 log_obj.remark = '执行中'
                 log_obj.datax_json = cls.task.datax_json
                 log_obj.save()
+
             if not retry and cls.settings.get('execute_way') not in ['retry','action']:
                 cls.generate_config()
-                cls.pre_execute()
+            cls.pre_execute()
             
             result = subprocess.run(
                     command,

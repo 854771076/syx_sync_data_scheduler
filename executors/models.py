@@ -1,12 +1,11 @@
 from django.db import models
 from  pathlib import Path
-from .extensions.metadata.utils import DatabaseTableHandler
+from .extensions.metadata.utils import DatabaseTableHandler,_sync_single_metadata
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.contrib import messages
 from loguru import logger
 from django.contrib.auth.models import User
-
 # 租户
 class Tenant(models.Model):
     name = models.CharField(max_length=255, verbose_name="租户名称", db_index=True)
@@ -174,10 +173,48 @@ class SplitConfig(models.Model):
     def __str__(self):
         return f"{self.name}"
 
-
-
-
-
+# 自定义任务日志依赖表
+class TaskLogDependency(models.Model):
+    name=models.CharField(max_length=255, verbose_name="名称", db_index=True)
+    data_source= models.ForeignKey(DataSource, on_delete=models.SET_NULL, verbose_name="关联数据源", null=True, blank=True,
+        db_constraint=False)
+    description = models.TextField(verbose_name="表描述", null=True, blank=True)
+    # 执行查询语句模板，例如：SELECT * FROM {table} WHERE {condition}
+    query_template = models.TextField(verbose_name="查询语句模板({xxx}为变量,如select count(*) from t_mysql2ods_executed_all_sync_log where partition_date='{partition_date}' and complit_state=1)", null=True, blank=True)
+    created_at = models.DateTimeField(verbose_name="创建时间", auto_now_add=True)
+    updated_at = models.DateTimeField(verbose_name="更新时间", auto_now=True)
+    def __str__(self):
+        return self.name
+    # 是否可执行
+    def is_executable(self,**kwargs):
+        assert self.query_template, "查询语句模板不能为空"
+        assert self.data_source, "数据源不能为空"
+        assert self.data_source.connection, "数据源连接不能为空"
+        assert self.data_source.connection.host, "数据源主机地址不能为空"
+        assert self.data_source.connection.port, "数据源端口不能为空"
+        assert self.data_source.type in ["mysql", "starrocks"], "数据源类型必须为mysql或starrocks"
+        conn=DatabaseTableHandler.get_connection(db_type=self.data_source.type, host=self.data_source.connection.host, port=self.data_source.connection.port, user=self.data_source.connection.username, password=self.data_source.connection.password)
+        if conn:
+            query=self.query_template.format(**kwargs)
+            logger.debug(f"执行查询语句：{query}")
+            cur=conn.cursor()
+            cur.execute(query)
+            result = cur.fetchall()
+            if result:
+                if result[0][0]>0:
+                    status = True
+                else:
+                    status = False
+            else:
+                status=False
+            cur.close()
+            conn.close()
+            return status
+        else:
+            return False
+    class Meta:
+        verbose_name = '任务依赖表'
+        verbose_name_plural = verbose_name
 class Task(models.Model):
     project = models.ForeignKey(Project, on_delete=models.CASCADE, verbose_name="关联项目")
     data_source =  models.ForeignKey(DataSource, related_name='source_tasks', on_delete=models.SET_NULL, verbose_name="源数据源", null=True, blank=True)
@@ -208,6 +245,10 @@ class Task(models.Model):
     datax_json=models.JSONField(verbose_name="最新DataX任务JSON",default=dict,null=True,blank=True)
     spark_code=models.TextField(verbose_name="最新Spark任务代码",default="",null=True,blank=True)
     is_custom_script=models.BooleanField(default=False, verbose_name="是否自定义脚本(启用则不会再生成脚本)")
+    # 脚本日志依赖
+    task_log_dependency = models.ForeignKey(TaskLogDependency, on_delete=models.SET_NULL, verbose_name="脚本日志依赖", null=True, blank=True,
+        db_constraint=False)
+
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="更新时间")
     @property
@@ -345,31 +386,7 @@ def sync_table_metadata(sender, instance:Task, created, **kwargs):
         name=instance.source_table).delete()
     except Exception as e:
         logger.error(e)
-def _sync_single_metadata(data_source:DataSource, db_name:str, table_name:str,config,tables=[]):
-    """同步单个表的元数据"""
-    from executors.extensions.metadata.utils import DatabaseTableHandler,HiveUtil,MysqlUtil
-    db_type = data_source.type
-    if tables:
-        source_db,source_table=tables[0].split(".")
-    else:
-        source_db,source_table=db_name,table_name
-    # 根据不同类型获取元数据
-    if db_type == 'mysql' or db_type == 'starrocks':
-        mysql_conn=MysqlUtil.get_mysql_client_by_config(data_source)
-        columns = MysqlUtil.get_table_schema(mysql_conn,source_db,source_table)
-    elif db_type == 'hive' or db_type == 'hdfs':
-        hive_conn=HiveUtil.get_hive_client_by_config(config,data_source)
-        columns = HiveUtil.get_table_schema(hive_conn,db_name,table_name)
-    else:
-        raise ValueError(f"不支持的数据库类型: {db_type}")
-    # 保存到元数据表中，如果已存在则更新
-    cls, created = MetadataTable.objects.update_or_create(
-        data_source=data_source,
-        db_name=db_name,
-        name=table_name,
-        defaults={'meta_data': columns}
-    )
-    return columns
+
 
 
 # 启动时更新所有任务的元数据
@@ -380,3 +397,4 @@ def update_all_tasks_metadata():
             sync_table_metadata(sender=Task, instance=task, created=False)
         except Exception as e:
             logger.error(e)
+

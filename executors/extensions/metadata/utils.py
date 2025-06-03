@@ -16,6 +16,18 @@ from datetime import datetime,timedelta
 
 # 库表处理逻辑类
 class DatabaseTableHandler:
+    # 获取连接
+    @staticmethod
+    def get_connection(db_type, host, port, user, password, database=None):
+        '''
+        获取连接
+        '''
+        if db_type == 'hive':
+            return hive.Connection(host=host, port=port, username=user, database=database)
+        elif db_type == 'hdfs':
+            return pyhdfs.HdfsClient(hosts=host, user_name=user)
+        elif db_type == 'mysql' or db_type == 'starrocks':
+            return pymysql.connect(host=host, port=port, user=user, password=password, database=database)
     @staticmethod
     def get_time_list(start,end,format):
         '''
@@ -110,8 +122,12 @@ class HiveUtil:
     # 通过全局配置获取hive连接
     @staticmethod
     def get_hive_client_by_config(config,datasource):
-        hive_host=config.get("HIVE_HOST")
-        hive_port=int(config.get("HIVE_PORT",10000))
+        if config.get("ENV")=="dev":
+            hive_host=config.get("HIVE_HOST_DEV")
+            hive_port=int(config.get("HIVE_PORT_DEV",10000))
+        else:
+            hive_host=config.get("HIVE_HOST")
+            hive_port=int(config.get("HIVE_PORT",10000))
         hive_user=datasource.connection.username
         hive_password=datasource.connection.password
         if hive_user and hive_password:
@@ -197,7 +213,31 @@ class HiveUtil:
             logger.debug(f"Table {table_name} does not exist in database {database_name}")
             return False
     
-
+def _sync_single_metadata(data_source, db_name:str, table_name:str,config,tables=[]):
+    from executors.models import MetadataTable
+    """同步单个表的元数据"""
+    db_type = data_source.type
+    if tables:
+        source_db,source_table=tables[0].split(".")
+    else:
+        source_db,source_table=db_name,table_name
+    # 根据不同类型获取元数据
+    if db_type == 'mysql' or db_type == 'starrocks':
+        mysql_conn=MysqlUtil.get_mysql_client_by_config(data_source)
+        columns = MysqlUtil.get_table_schema(mysql_conn,source_db,source_table)
+    elif db_type == 'hive' or db_type == 'hdfs':
+        hive_conn=HiveUtil.get_hive_client_by_config(config,data_source)
+        columns = HiveUtil.get_table_schema(hive_conn,db_name,table_name)
+    else:
+        raise ValueError(f"不支持的数据库类型: {db_type}")
+    # 保存到元数据表中，如果已存在则更新
+    cls, created = MetadataTable.objects.update_or_create(
+        data_source=data_source,
+        db_name=db_name,
+        name=table_name,
+        defaults={'meta_data': columns}
+    )
+    return columns
 
 # Hdfs工具类
 class HdfsUtil:
