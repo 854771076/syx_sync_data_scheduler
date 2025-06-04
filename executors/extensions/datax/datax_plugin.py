@@ -327,9 +327,7 @@ class DataXPlugin:
 
     def execute(self):
         """执行DataX任务"""
-        while not self.is_depend():
-            logger.info(f"[datax_plugin]:task {self.task.id} 依赖未执行，等待中")
-            time.sleep(60)
+        
         if self.is_completed():
             logger.info(f"[datax_plugin]:task {self.task.id} 当日已执行，跳过")
             return False
@@ -360,11 +358,12 @@ class DataXPlugin:
             else:
                 DATAX_BIN_PATH=cls.config.get('DATAX_BIN_PATH_DEV')
             if os.name == 'nt':
-                command = f'set HADOOP_USER_NAME={cls.task.project.tenant.name}&&{cls.config["PYTHON_BIN_PATH"]} {DATAX_BIN_PATH} --jvm="{cls.jvm_options}" {config_path} > {log_path}'
+                command = f'set HADOOP_USER_NAME={cls.task.project.tenant.name}&&{cls.config["PYTHON_BIN_PATH"]} {DATAX_BIN_PATH} --jvm="{cls.jvm_options}" {config_path}  > {log_path} 2>&1'
             else:
-                command = f'HADOOP_USER_NAME={cls.task.project.tenant.name} {cls.config["PYTHON_BIN_PATH"]} {DATAX_BIN_PATH} --jvm="{cls.jvm_options}" {config_path} > {log_path}'
+                command = f'HADOOP_USER_NAME={cls.task.project.tenant.name} {cls.config["PYTHON_BIN_PATH"]} {DATAX_BIN_PATH} --jvm="{cls.jvm_options}" {config_path} > {log_path} 2>&1'
             # 执行中日志
             logger.info(f"执行 DataX 任务 {cls.task.id}，命令：{command}")
+            
             log_obj, created = Log.objects.get_or_create(
                 task=cls.task,
                 partition_date=cls.settings.get('partition_date'),
@@ -379,6 +378,7 @@ class DataXPlugin:
                     'numrows': None,
                     'remark': '执行中',
                     'datax_json': cls.task.datax_json,
+                    'pid':''
                 }
             )
             if not created:
@@ -392,23 +392,67 @@ class DataXPlugin:
                 log_obj.numrows = None
                 log_obj.remark = '执行中'
                 log_obj.datax_json = cls.task.datax_json
+                log_obj.pid=''
                 log_obj.save()
-
             if not retry and cls.settings.get('execute_way') not in ['retry','action']:
+                while not cls.is_depend():
+                    new_log=Log.objects.filter(
+                        pk=log_obj.pk,
+                    ).first()
+                    if new_log:
+                        if new_log.complit_state==4:
+                            logger.warning(f"[datax_plugin]:task {cls.task.id} 手动停止，退出任务")
+                            return False
+                    logger.info(f"[datax_plugin]:task {cls.task.id} 依赖未执行，等待中")
+                    time.sleep(60)
                 cls.generate_config()
             cls.pre_execute()
             
-            result = subprocess.run(
+            process = subprocess.Popen(
                     command,
-                    shell=True, encoding='utf-8'
+                    shell=True, encoding='utf-8',preexec_fn=os.setsid
                 )
+            pid = process.pid
+            log_obj, created = Log.objects.get_or_create(
+                task=cls.task,
+                partition_date=cls.settings.get('partition_date'),
+                execute_way=cls.settings.get('execute_way'),
+                defaults={
+                    'executed_state': 'process',
+                    'complit_state': 2,
+                    'start_time': cls.settings.get('start_time'),
+                    'end_time': cls.settings.get('end_time'),
+                    'local_row_update_time_start': start_time,
+                    'local_row_update_time_end': None,
+                    'numrows': None,
+                    'remark': '执行中',
+                    'datax_json': cls.task.datax_json,
+                    'pid':pid
+                }
+            )
+            if not created:
+                # 如果记录已存在，则更新
+                log_obj.executed_state = 'process'
+                log_obj.complit_state = 2
+                log_obj.start_time = cls.settings.get('start_time')
+                log_obj.end_time = cls.settings.get('end_time')
+                log_obj.local_row_update_time_start = start_time
+                log_obj.local_row_update_time_end = None
+                log_obj.numrows = None
+                log_obj.remark = '执行中'
+                log_obj.datax_json = cls.task.datax_json
+                log_obj.pid=pid
+                log_obj.save()
+            returncode = process.wait()
+            stderr=process.stderr
+            stdout=process.stdout
             end_time=datetime.now()
             # 保存执行日志
             with open(log_path, "r", encoding="utf-8") as log_file:
                 log_data=log_file.read()
             
             # 处理执行结果
-            if result.returncode == 0:
+            if returncode == 0:
                 # 解析执行日志
                 log=DataxUtil.parse_log(log_data)
                 # 记录日志
@@ -429,6 +473,8 @@ class DataXPlugin:
                             'numrows': log.get('read_num'),
                             'remark': "查看详细日志",
                             'datax_json': cls.task.datax_json,
+                            'pid':pid
+                            
                         }
                     )
                     if not created:
@@ -442,6 +488,7 @@ class DataXPlugin:
                         log_obj.numrows = log.get('read_num')
                         log_obj.remark = "查看详细日志"
                         log_obj.datax_json = cls.task.datax_json
+                        log_obj.pid=pid
                         log_obj.save()
 
                 elif log.get('is_None'):
@@ -461,6 +508,7 @@ class DataXPlugin:
                             'numrows': log.get('read_num'),
                             'remark': f"DataX 任务 {cls.task.id} 执行完成，但是没有读取到数据",
                             'datax_json': cls.task.datax_json,
+                            'pid':pid
                         }
                     )
                     if not created:
@@ -474,6 +522,7 @@ class DataXPlugin:
                         log_obj.numrows = log.get('read_num')
                         log_obj.remark = f"DataX 任务 {cls.task.id} 执行完成，但是没有读取到数据"
                         log_obj.datax_json = cls.task.datax_json
+                        log_obj.pid=pid
                         log_obj.save()
                 else:
                     logger.info(f"DataX 任务 {cls.task.id} 执行完成，读取到 {log.get('read_num')} 条数据")
@@ -492,6 +541,7 @@ class DataXPlugin:
                             'numrows': log.get('read_num'),
                             'remark': f"DataX 任务 {cls.task.id} 执行完成，读取到 {log.get('read_num')} 条数据",
                             'datax_json': cls.task.datax_json,
+                            'pid':pid
                         }
                     )
                     if not created:
@@ -505,9 +555,10 @@ class DataXPlugin:
                         log_obj.numrows = log.get('read_num')
                         log_obj.remark = f"DataX 任务 {cls.task.id} 执行完成，读取到 {log.get('read_num')} 条数据"
                         log_obj.datax_json = cls.task.datax_json
+                        log_obj.pid=pid
                         log_obj.save()
                 
-                return True,result.stdout
+                return True,stdout
             else:
                 end_time=datetime.now()
                 logger.exception(f"DataX 任务 {cls.task.id} 执行失败")
@@ -526,6 +577,7 @@ class DataXPlugin:
                         'numrows': 0,
                         'remark': "查看详细日志",
                         'datax_json': cls.task.datax_json,
+                        'pid':pid
                     }
                 )
                 if not created:
@@ -539,8 +591,9 @@ class DataXPlugin:
                     log_obj.numrows = 0
                     log_obj.remark = "查看详细日志"
                     log_obj.datax_json = cls.task.datax_json
+                    log_obj.pid=pid
                     log_obj.save()
-                return False,result.stderr
+                return False,stderr
         except Exception as e:
             end_time=datetime.now()
             logger.exception(f"DataX 任务 {cls.task.id} 执行异常: {e}")
@@ -559,6 +612,7 @@ class DataXPlugin:
                     'numrows': 0,
                     'remark': str(e),
                     'datax_json': cls.task.datax_json,
+                    'pid':pid
                 }
             )
             if not created:
@@ -572,6 +626,7 @@ class DataXPlugin:
                 log_obj.numrows = 0
                 log_obj.remark = str(e)
                 log_obj.datax_json = cls.task.datax_json
+                log_obj.pid=pid
                 log_obj.save()
             return False,str(e)
     # 通过reader_transform_columns配置转换字段名字
@@ -810,7 +865,7 @@ class Reader:
         
         reader_parameter = {
             "column": source_columns_format,
-            "nullFormat": "",
+            "nullFormat": "\\N",
             "defaultFS": self.source.connection.params.get("defaultFS"),
             "hadoopConfig":hadoopConfig,
             "path": f"/user/hive/warehouse/%s.db/%s/{self.task.partition_column}=%s/*", 

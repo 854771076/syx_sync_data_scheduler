@@ -10,8 +10,13 @@ from django.http import HttpResponseRedirect
 from django.urls import path
 from .views import  init_scheduler_task
 from concurrent.futures import ThreadPoolExecutor,as_completed
-import threading
+import subprocess
+import os
+import signal
+import time
 from datetime import datetime
+import os
+import signal
 from executors.extensions import ManagerFactory
 task_executor = ThreadPoolExecutor(max_workers=5)
 def async_task_wrapper(func,request, *args, **kwargs):
@@ -338,3 +343,42 @@ def project_configure_view(request):
     # 初始化表单
     form = ConfigForm()
     return render(request, 'admin/datax_config_form.html', {'form': form,'back_url': reverse('admin:executors_project_changelist')})
+
+def create_table(modeladmin, request, queryset):
+    for obj in queryset:
+        try:
+            obj.create_table()
+            messages.success(request, f"表 {obj.name} 创建成功！")
+        except Exception as e:
+            logger.exception(e)
+            messages.error(request, str(e))
+create_table.short_description = "创建表"
+# 一段时间后需要终止进程
+def kill_process_group(pid, timeout=10):
+    """终止整个进程组（Unix 系统）"""
+    if os.name == 'nt':
+        os.kill(pid, signal.SIGTERM)
+    
+    try:
+        # 获取进程组 ID（与主进程 PID 相同）
+        pgid = os.getpgid(pid)
+        
+        # 发送 SIGTERM 信号到整个进程组
+        os.killpg(pgid, signal.SIGTERM)
+        
+        # 等待进程组终止
+        time.sleep(timeout)
+        
+        # 检查进程组是否仍存在
+        try:
+            os.killpg(pgid, 0)  # 发送 0 信号仅用于检查进程是否存在
+            # 进程组仍存在，发送 SIGKILL
+            os.killpg(pgid, signal.SIGKILL)
+            logger.info(f"进程组 {pgid} 已被强制终止")
+        except OSError:
+            logger.info(f"进程组 {pgid} 已成功终止")
+        
+        return True
+    except Exception as e:
+        logger.error(f"终止进程组时出错: {e}")
+        return False

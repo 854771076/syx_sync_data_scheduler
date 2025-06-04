@@ -16,6 +16,65 @@ from datetime import datetime,timedelta
 
 # 库表处理逻辑类
 class DatabaseTableHandler:
+    # 复制表
+    @staticmethod
+    def copy_create_table_by_task(task):
+        '''
+        复制表
+        '''
+        from ...models import ConfigItem
+        tables=DatabaseTableHandler.split(task)
+        config = dict(ConfigItem.objects.all().values_list("key", "value"))
+        source_columns=get_table_schema_by_config(config,task.data_source,task.source_db,task.source_table,tables)
+        target_columns=[]
+        sync_time_column=task.sync_time_column or 'cdc_sync_date'
+        for f in source_columns:
+            if task.partition_column != f['name'] and sync_time_column != f['name']:
+                target_columns.append({
+                    'name': f['name'],
+                    'type': DataxTypes.convert_type(task.data_source.type,task.data_target.type,f['type'])
+                })
+        # 同步字段
+        
+        # 生成建表语句
+        ddl = []
+        if task.data_target.type in ['starrocks']:
+            # MySQL/StarRocks建表语句生成
+            ddl.append(f"CREATE TABLE IF NOT EXISTS {task.target_db}.{task.target_table} (")
+            ddl.append(',\n'.join([f"  `{col['name']}` {col['type']}" for col in target_columns]))
+            
+            ddl.append(f') DISTRIBUTED BY HASH(`{target_columns[0].get("name")}`) BUCKETS 256 PROPERTIES ("replication_num" = "1","in_memory" = "false","storage_format" = "DEFAULT","enable_persistent_index" = "true","compression" = "LZ4");')
+        elif task.data_target.type in ['mysql']:
+            # MySQL/StarRocks建表语句生成
+            ddl.append(f"CREATE TABLE IF NOT EXISTS {task.target_db}.{task.target_table} (")
+            ddl.append(',\n'.join([f"  `{col['name']}` {col['type']}" for col in target_columns]))
+            ddl.append(") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4")      
+        elif task.data_target.type in  ['hive','hdfs']:
+            if task.is_add_sync_time:
+                target_columns.append({
+                    'name':task.sync_time_column,
+                    'type': DataxTypes.convert_type('hdfs',task.data_target.type,'timestamp')
+                })
+            # Hive建表语句生成
+            ddl.append(f"CREATE TABLE IF NOT EXISTS {task.target_db}.{task.target_table} (")
+            ddl.append(',\n'.join([f"  {col['name']} {col['type']}" for col in target_columns]))
+            
+            # 添加分区字段
+            if task.is_partition and task.partition_column:
+                ddl.append(f") PARTITIONED BY ({task.partition_column} STRING) ")
+                ddl.append(f"STORED AS ORC LOCATION '/user/hive/warehouse/{task.target_db}.db/{task.target_table}'")
+            else:
+                ddl.append(f") STORED AS ORC LOCATION '/user/hive/warehouse/{task.target_db}.db/{task.target_table}'")
+        else:
+            raise ValueError(f"Unsupported database type: {task.data_target.type}")
+        # 执行建表语句
+        if ddl:
+            conn=get_conn_by_config(config,task.data_target)
+            cursor = conn.cursor()
+            cursor.execute('\n'.join(ddl))
+            conn.commit()
+            logger.success(f"成功创建表 {task.target_db}.{task.target_table}")
+
     # 获取连接
     @staticmethod
     def get_connection(db_type, host, port, user, password, database=None):
@@ -212,24 +271,38 @@ class HiveUtil:
         else:
             logger.debug(f"Table {table_name} does not exist in database {database_name}")
             return False
-    
-def _sync_single_metadata(data_source, db_name:str, table_name:str,config,tables=[]):
-    from executors.models import MetadataTable
-    """同步单个表的元数据"""
-    db_type = data_source.type
+def get_conn_by_config(config,data_source):
+    from executors.models import DataSource
+    db_type=data_source.type
+    if db_type =='mysql' or db_type =='starrocks':
+        mysql_conn=MysqlUtil.get_mysql_client_by_config(data_source)
+        return mysql_conn
+    elif db_type == 'hive' or db_type == 'hdfs':
+        hive_conn=HiveUtil.get_hive_client_by_config(config,data_source)
+        return hive_conn
+    else:
+        raise ValueError(f"不支持的数据库类型: {db_type}")
+def get_table_schema_by_config(config,data_source,db_name,table_name,tables=[]):
+    from executors.models import DataSource
+    db_type=data_source.type
     if tables:
         source_db,source_table=tables[0].split(".")
     else:
         source_db,source_table=db_name,table_name
-    # 根据不同类型获取元数据
-    if db_type == 'mysql' or db_type == 'starrocks':
-        mysql_conn=MysqlUtil.get_mysql_client_by_config(data_source)
-        columns = MysqlUtil.get_table_schema(mysql_conn,source_db,source_table)
+    conn=get_conn_by_config(config,data_source)
+    if db_type =='mysql' or db_type =='starrocks':
+        columns = MysqlUtil.get_table_schema(conn,source_db,source_table)
+        return columns
     elif db_type == 'hive' or db_type == 'hdfs':
-        hive_conn=HiveUtil.get_hive_client_by_config(config,data_source)
-        columns = HiveUtil.get_table_schema(hive_conn,db_name,table_name)
+        columns = HiveUtil.get_table_schema(conn,source_db,source_table)
+        return columns
     else:
         raise ValueError(f"不支持的数据库类型: {db_type}")
+def _sync_single_metadata(data_source, db_name:str, table_name:str,config,tables=[]):
+    from executors.models import MetadataTable
+    """缓存表字段"""
+    # 根据不同类型获取元数据
+    columns=get_table_schema_by_config(config,data_source,db_name,table_name,tables)
     # 保存到元数据表中，如果已存在则更新
     cls, created = MetadataTable.objects.update_or_create(
         data_source=data_source,
@@ -250,31 +323,6 @@ class HdfsUtil:
         else:
             return pyhdfs.HdfsClient(hosts=HadoopClient)
 
-    # @staticmethod
-    # def extract_namenode_ips(hadoop_config):
-    #     """
-    #     从 Hadoop 配置 JSON 数据中提取所有 NameNode 的 IP 地址，并用逗号分割。
-
-    #     :param hadoop_config: 包含 Hadoop 配置的字典
-    #     :return: 用逗号分割的 IP 地址字符串
-    #     """
-    #     try:
-    #         # 获取 nameservice 名称
-    #         nameservice = hadoop_config["dfs.nameservices"]
-    #         # 获取 namenode 列表
-    #         namenodes = hadoop_config[f"dfs.ha.namenodes.{nameservice}"].split(',')
-    #         # 提取所有 namenode 的 IP 地址
-    #         ip_addresses = []
-    #         for namenode in namenodes:
-    #             key = f"dfs.namenode.rpc-address.{nameservice}.{namenode}"
-    #             if key in hadoop_config:
-    #                 ip = hadoop_config[key].split(':')[0]
-    #                 ip_addresses.append(ip)
-    #         # 用逗号分割 IP 地址
-    #         return ','.join(ip_addresses)
-    #     except KeyError:
-    #         return ""
-    # 删除hive目录下的文件
     @staticmethod
     def drop_hive_table(hdfs_client, database_name, table_name,partition_columns=None,partition=None):
         if partition_columns:

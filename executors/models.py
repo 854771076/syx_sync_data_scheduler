@@ -260,7 +260,8 @@ class Task(models.Model):
         return DatabaseTableHandler.split(self)
     tables_all.fget.short_description = "分库分表列表（全量）"
     
-
+    def create_table(self):
+        return DatabaseTableHandler.copy_create_table_by_task(self)
     
     def __str__(self):
         return f"{self.name}"
@@ -283,11 +284,13 @@ class Log(models.Model):
         fail = 'fail', '失败'
         process = 'process', '处理中'
         bak = 'bak', '备份'
+        stopped = 'stop', '停止'
     class complitStateChoices(models.TextChoices):
         success = 1, '成功'
         fail = 0, '失败'
         process = 2, '处理中'
         bak = 3, '备份'
+        stopped = 4, '已停止'
     task = models.ForeignKey(Task, on_delete=models.CASCADE, verbose_name="关联任务")
     partition_date = models.CharField(max_length=10,verbose_name="分区日期",null=True,blank=True)
     execute_way = models.CharField(max_length=10, verbose_name="执行方式",choices=executeWayChoices.choices,default=executeWayChoices.incr_sync)
@@ -305,6 +308,8 @@ class Log(models.Model):
     map_input_nums = models.IntegerField(verbose_name=" 拉取数量统计",null=True,blank=True)
     datax_json=models.JSONField(verbose_name="DataX任务",default=dict,null=True,blank=True)
     spark_code=models.TextField(verbose_name="Spark任务",default="",null=True,blank=True)
+    pid = models.CharField(max_length=255, verbose_name="进程ID", null=True, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="更新时间")
     

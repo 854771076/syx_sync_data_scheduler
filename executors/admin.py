@@ -4,7 +4,8 @@ from  pathlib import Path
 from django.contrib import admin
 from .actions import *
 from django.utils.html import format_html
-
+import os
+import signal
 admin.site.site_header = '大数据调度管理后台'  # 设置header
 admin.site.site_title = '大数据调度管理后台'   # 设置title
 admin.site.index_title = '大数据调度管理后台'
@@ -142,7 +143,7 @@ class TaskAdmin(admin.ModelAdmin):
     search_fields = ('id','name', 'project__name')
     list_display_links = ('id','name')
     ordering = ('-created_at','-updated_at')
-    actions = [copy_data,execute_datax_tasks_generate_config_update,execute_datax_tasks_generate_config_all,execute_datax_tasks_execute_json,execute_datax_tasks,enable,disable]
+    actions = [copy_data,execute_datax_tasks_generate_config_update,execute_datax_tasks_generate_config_all,execute_datax_tasks_execute_json,execute_datax_tasks,enable,disable,create_table]
     fieldsets = (
         ('基础信息', {
             'fields': (
@@ -201,8 +202,40 @@ class LogAdmin(admin.ModelAdmin):
     list_filter = ('execute_way','partition_date','executed_state','task__project__name')
     readonly_fields = ('task','source_db','source_table','target_db','target_table','partition_date', 'execute_way', 'executed_state','local_row_update_time_start','local_row_update_time_end','start_time', 'end_time', 'numrows', 'created_at', 'updated_at','log_file','datax_json')
     list_display_links = ('task','id')
-    actions = [log_retry,log_retry_new]
+    
     ordering = ('-created_at','-updated_at')
+    @admin.action(description="停止任务")
+    def stop_thread_by_id(modeladmin, request, queryset):
+        for log in queryset:
+            if log.pid and log.complit_state ==2:
+                try:
+                    kill_process_group(int(log.pid),1)
+                    logger.info(f"进程 {log.pid} 已停止")
+                    messages.success(request, f"进程 {log.pid} 已停止")
+                    log.executed_state = 'stop'
+                    log.complit_state=4
+                    log.pid=''
+                    log.save()
+                    
+                except ProcessLookupError:
+                    messages.warning(request, f"进程 {log.pid} 不存在")
+                    logger.warning(f"进程 {log.pid} 不存在")
+                except PermissionError:
+                    messages.error(request, f"没有权限停止进程 {log.pid}")
+                    logger.error(f"没有权限停止进程 {log.pid}")
+                except Exception as e:
+                    messages.error(request, f"停止进程 {log.pid} 时发生错误: {e}")
+                    logger.error(f"停止进程 {log.pid} 时发生错误: {e}")
+            elif not log.pid and log.complit_state ==2: 
+                log.executed_state = 'stop'
+                log.complit_state=4
+                log.pid=''
+                log.save()
+                messages.success(request, f"进程 {log.pid} 已停止")
+                logger.info(f"进程 {log.pid} 已停止")
+            else:
+                messages.warning(request, f"任务未启动或已停止，无法停止线程")
+    actions = [log_retry,log_retry_new,stop_thread_by_id]
     fieldsets = (
         ('基础信息', {
             'fields': (
@@ -214,6 +247,7 @@ class LogAdmin(admin.ModelAdmin):
         ('日志信息', {
             'classes': ('collapse',),
             'fields': (
+                'remark',
                 'log_file',
                 'datax_json',
                 'spark_code'
@@ -222,7 +256,7 @@ class LogAdmin(admin.ModelAdmin):
         ('系统信息', {
             'classes': ('collapse','readonly'),
             'fields': (
-                'created_at', 'updated_at'
+                'created_at', 'updated_at','pid'
             ) 
         }),
 
@@ -250,13 +284,6 @@ class LogAdmin(admin.ModelAdmin):
             return "日志文件不存在"
         return format_html('<a href="{}" target="_blank">查看日志</a>', logs_path)
         
-        # log_file_path = logs_dir / f"{obj.task.id}.log"
-        # if log_file_path.exists():
-        #     with open(log_file_path, 'r', encoding='utf-8') as file:
-        #         # 取最后200行
-        #         lines = file.readlines()[-200:]
-        #         return '\n'.join(lines)
-        # return "日志文件不存在"
     
 
     def has_add_permission(self, request):
@@ -273,6 +300,8 @@ class LogAdmin(admin.ModelAdmin):
             return format_html('<span style="color: yellow;">执行中</span>')
         elif obj.complit_state == 3:
             return format_html('<span >备份</span>')
+        elif obj.complit_state == 4:
+            return format_html('<span style="color: gray;">停止</span>')
         else:
             return format_html('<span style="color: gray;">未知</span>')
     complit_state_format.short_description = '执行状态'

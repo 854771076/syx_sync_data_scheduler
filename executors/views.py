@@ -257,6 +257,7 @@ class LogStatisticsAPI(APIView):
             fail=Count('id', filter=Q(executed_state='fail')),
             running=Count('id', filter=Q(executed_state='process')),
             bak=Count('id', filter=Q(executed_state='bak')),
+            stop=Count('id', filter=Q(executed_state='stop')),
             total=Count('id'),
             avg_time=Avg(
                 ExpressionWrapper(F('local_row_update_time_end') - F('local_row_update_time_start'), output_field=DurationField())
@@ -289,6 +290,8 @@ class LogStatisticsAPI(APIView):
                 status_data['running'] = stat['count']
             elif stat['executed_state'] == 'bak':
                 status_data['bak'] = stat['count']
+            elif stat['executed_state'] == 'stop':
+                status_data['stop'] = stat['count']
 
         data = {
             'status_stats': status_data,

@@ -186,7 +186,8 @@
                             { value: data.status_stats.success, name: '成功' },
                             { value: data.status_stats.fail, name: '失败' },
                             { value: data.status_stats.running, name: '运行中' },
-                            { value: data.status_stats.bak, name: '备份' }
+                            { value: data.status_stats.bak, name: '备份' },
+                            { value: data.status_stats.stop, name: '停止'}
                         ]
                     }]
                 };
@@ -235,6 +236,11 @@
                             name: '备份',
                             type: 'bar',
                             data: data.project_stats.map(item => item.bak)
+                        },
+                        {
+                            name: '停止',
+                            type: 'bar',
+                            data: data.project_stats.map(item => item.stop)
                         },
                         {
                             name: '平均时间',
