@@ -265,7 +265,27 @@ class Task(models.Model):
     
     def __str__(self):
         return f"{self.name}"
-
+    # 重写save
+    def save(self, *args, **kwargs):
+        if self.pk:  # 仅处理更新操作
+            old_instance = Task.objects.get(pk=self.pk)
+            # 如果仅只有除spark_code或者datax_json以外的字段有变化才清空缓存
+            other_fields_changed = any(
+                getattr(old_instance, f.name) != getattr(self, f.name)
+                for f in self._meta.fields
+                if f.name in ['data_source','source_db','source_table','data_target','target_db','target_table']
+            )
+            if other_fields_changed:
+                MetadataTable.objects.filter(data_source=self.data_source,
+                db_name=self.source_db,
+                name=self.source_table).delete()
+                MetadataTable.objects.filter(data_source=self.data_target,
+                db_name=self.target_db,
+                name=self.target_table).delete()
+                logger.debug(f"清除元数据缓存：{self.data_source} {self.source_db} {self.source_table}")
+                logger.debug(f"清除元数据缓存：{self.data_target} {self.target_db} {self.target_table}")
+            
+        super().save(*args, **kwargs)
     class Meta:
         verbose_name = '任务'
         verbose_name_plural = verbose_name
@@ -381,16 +401,22 @@ class AsyncTaskStatus(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
 
-@receiver(post_save, sender=Task)
-def sync_table_metadata(sender, instance:Task, created, **kwargs):
-    from executors.extensions.metadata.utils import DatabaseTableHandler
-    """监听任务创建/更新，同步表元数据"""
-    try:
-        MetadataTable.objects.filter(data_source=instance.data_source,
-        db_name=instance.source_db,
-        name=instance.source_table).delete()
-    except Exception as e:
-        logger.error(e)
+# @receiver(post_save, sender=Task)
+# def sync_table_metadata(sender, instance:Task, created, **kwargs):
+#     from executors.extensions.metadata.utils import DatabaseTableHandler
+#     """监听任务创建/更新，同步表元数据"""
+#     try:
+#         # 排除某个字段的更新
+#         if not  created and kwargs.get('update_fields'):
+#             if 'datax_json' not in kwargs.get('update_fields') and 'spark_code' not in kwargs.get('update_fields'):
+#                 MetadataTable.objects.filter(data_source=instance.data_source,
+#                 db_name=instance.source_db,
+#                 name=instance.source_table).delete()
+#                 MetadataTable.objects.filter(data_source=instance.data_target,
+#                 db_name=instance.source_db,
+#                 name=instance.source_table).delete()
+#     except Exception as e:
+#         logger.error(e)
 
 
 

@@ -305,11 +305,16 @@ def _sync_single_metadata(data_source, db_name:str, table_name:str,config,tables
     columns=get_table_schema_by_config(config,data_source,db_name,table_name,tables)
     # 保存到元数据表中，如果已存在则更新
     cls, created = MetadataTable.objects.update_or_create(
-        data_source=data_source,
+        data_source_id=data_source.id,
         db_name=db_name,
         name=table_name,
-        defaults={'meta_data': columns}
+        defaults={
+            'meta_data': columns,
+            'description': f"自动同步表结构 {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        }
     )
+
+    logger.debug(f"Created metadata for {data_source}_{db_name}.{table_name}")
     return columns
 
 # Hdfs工具类

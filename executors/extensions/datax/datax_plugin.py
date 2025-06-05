@@ -364,7 +364,7 @@ class DataXPlugin:
             # 执行中日志
             logger.info(f"执行 DataX 任务 {cls.task.id}，命令：{command}")
             
-            log_obj, created = Log.objects.get_or_create(
+            log_obj, created = Log.objects.update_or_create(
                 task=cls.task,
                 partition_date=cls.settings.get('partition_date'),
                 execute_way=cls.settings.get('execute_way'),
@@ -381,19 +381,6 @@ class DataXPlugin:
                     'pid':''
                 }
             )
-            if not created:
-                # 如果记录已存在，则更新
-                log_obj.executed_state = 'process'
-                log_obj.complit_state = 2
-                log_obj.start_time = cls.settings.get('start_time')
-                log_obj.end_time = cls.settings.get('end_time')
-                log_obj.local_row_update_time_start = start_time
-                log_obj.local_row_update_time_end = None
-                log_obj.numrows = None
-                log_obj.remark = '执行中'
-                log_obj.datax_json = cls.task.datax_json
-                log_obj.pid=''
-                log_obj.save()
             if not retry and cls.settings.get('execute_way') not in ['retry','action']:
                 while not cls.is_depend():
                     new_log=Log.objects.filter(
@@ -413,7 +400,7 @@ class DataXPlugin:
                     shell=True, encoding='utf-8',preexec_fn=os.setsid
                 )
             pid = process.pid
-            log_obj, created = Log.objects.get_or_create(
+            log_obj, created = Log.objects.update_or_create(
                 task=cls.task,
                 partition_date=cls.settings.get('partition_date'),
                 execute_way=cls.settings.get('execute_way'),
@@ -430,19 +417,6 @@ class DataXPlugin:
                     'pid':pid
                 }
             )
-            if not created:
-                # 如果记录已存在，则更新
-                log_obj.executed_state = 'process'
-                log_obj.complit_state = 2
-                log_obj.start_time = cls.settings.get('start_time')
-                log_obj.end_time = cls.settings.get('end_time')
-                log_obj.local_row_update_time_start = start_time
-                log_obj.local_row_update_time_end = None
-                log_obj.numrows = None
-                log_obj.remark = '执行中'
-                log_obj.datax_json = cls.task.datax_json
-                log_obj.pid=pid
-                log_obj.save()
             returncode = process.wait()
             stderr=process.stderr
             stdout=process.stdout
@@ -459,7 +433,7 @@ class DataXPlugin:
                 if log.get('error_num')>0:
                     logger.error(f"DataX 任务 {cls.task.id} 执行失败")
                     # 按唯一键查找或创建记录
-                    log_obj, created = Log.objects.get_or_create(
+                    log_obj, created = Log.objects.update_or_create(
                         task=cls.task,
                         partition_date=cls.settings.get('partition_date'),
                         execute_way=cls.settings.get('execute_way'),
@@ -477,24 +451,11 @@ class DataXPlugin:
                             
                         }
                     )
-                    if not created:
-                        # 如果记录已存在，则更新
-                        log_obj.executed_state = 'fail'
-                        log_obj.complit_state = 0
-                        log_obj.start_time = cls.settings.get('start_time')
-                        log_obj.end_time = cls.settings.get('end_time')
-                        log_obj.local_row_update_time_start = start_time
-                        log_obj.local_row_update_time_end = end_time
-                        log_obj.numrows = log.get('read_num')
-                        log_obj.remark = "查看详细日志"
-                        log_obj.datax_json = cls.task.datax_json
-                        log_obj.pid=pid
-                        log_obj.save()
 
                 elif log.get('is_None'):
                     logger.warning(f"DataX 任务 {cls.task.id} 执行完成，但是没有读取到数据")
                     # 按唯一键查找或创建记录
-                    log_obj, created = Log.objects.get_or_create(
+                    log_obj, created = Log.objects.update_or_create(
                         task=cls.task,
                         partition_date=cls.settings.get('partition_date'),
                         execute_way=cls.settings.get('execute_way'),
@@ -511,23 +472,10 @@ class DataXPlugin:
                             'pid':pid
                         }
                     )
-                    if not created:
-                        # 如果记录已存在，则更新
-                        log_obj.executed_state = 'success'
-                        log_obj.complit_state = 1
-                        log_obj.start_time = cls.settings.get('start_time')
-                        log_obj.end_time = cls.settings.get('end_time')
-                        log_obj.local_row_update_time_start = start_time
-                        log_obj.local_row_update_time_end = end_time
-                        log_obj.numrows = log.get('read_num')
-                        log_obj.remark = f"DataX 任务 {cls.task.id} 执行完成，但是没有读取到数据"
-                        log_obj.datax_json = cls.task.datax_json
-                        log_obj.pid=pid
-                        log_obj.save()
                 else:
                     logger.info(f"DataX 任务 {cls.task.id} 执行完成，读取到 {log.get('read_num')} 条数据")
                     # 按唯一键查找或创建记录
-                    log_obj, created = Log.objects.get_or_create(
+                    log_obj, created = Log.objects.update_or_create(
                         task=cls.task,
                         partition_date=cls.settings.get('partition_date'),
                         execute_way=cls.settings.get('execute_way'),
@@ -544,26 +492,13 @@ class DataXPlugin:
                             'pid':pid
                         }
                     )
-                    if not created:
-                        # 如果记录已存在，则更新
-                        log_obj.executed_state = 'success'
-                        log_obj.complit_state = 1
-                        log_obj.start_time = cls.settings.get('start_time')
-                        log_obj.end_time = cls.settings.get('end_time')
-                        log_obj.local_row_update_time_start = start_time
-                        log_obj.local_row_update_time_end = end_time
-                        log_obj.numrows = log.get('read_num')
-                        log_obj.remark = f"DataX 任务 {cls.task.id} 执行完成，读取到 {log.get('read_num')} 条数据"
-                        log_obj.datax_json = cls.task.datax_json
-                        log_obj.pid=pid
-                        log_obj.save()
                 
                 return True,stdout
             else:
                 end_time=datetime.now()
                 logger.exception(f"DataX 任务 {cls.task.id} 执行失败")
                 # 按唯一键查找或创建记录
-                log_obj, created = Log.objects.get_or_create(
+                log_obj, created = Log.objects.update_or_create(
                     task=cls.task,
                     partition_date=cls.settings.get('partition_date'),
                     execute_way=cls.settings.get('execute_way'),
@@ -580,25 +515,12 @@ class DataXPlugin:
                         'pid':pid
                     }
                 )
-                if not created:
-                    # 如果记录已存在，则更新
-                    log_obj.executed_state = 'fail'
-                    log_obj.complit_state = str(0)
-                    log_obj.start_time = cls.settings.get('start_time')
-                    log_obj.end_time = cls.settings.get('end_time')
-                    log_obj.local_row_update_time_start = start_time
-                    log_obj.local_row_update_time_end = end_time
-                    log_obj.numrows = 0
-                    log_obj.remark = "查看详细日志"
-                    log_obj.datax_json = cls.task.datax_json
-                    log_obj.pid=pid
-                    log_obj.save()
                 return False,stderr
         except Exception as e:
             end_time=datetime.now()
             logger.exception(f"DataX 任务 {cls.task.id} 执行异常: {e}")
             # 按唯一键查找或创建记录
-            log_obj, created = Log.objects.get_or_create(
+            log_obj, created = Log.objects.update_or_create(
                 task=cls.task,
                 partition_date=cls.settings.get('partition_date'),
                 execute_way=cls.settings.get('execute_way'),
@@ -615,19 +537,6 @@ class DataXPlugin:
                     'pid':pid
                 }
             )
-            if not created:
-                # 如果记录已存在，则更新
-                log_obj.executed_state = 'fail'
-                log_obj.complit_state = str(0)
-                log_obj.start_time = cls.settings.get('start_time')
-                log_obj.end_time = cls.settings.get('end_time')
-                log_obj.local_row_update_time_start = start_time
-                log_obj.local_row_update_time_end = end_time
-                log_obj.numrows = 0
-                log_obj.remark = str(e)
-                log_obj.datax_json = cls.task.datax_json
-                log_obj.pid=pid
-                log_obj.save()
             return False,str(e)
     # 通过reader_transform_columns配置转换字段名字
     def _transform_columns(
@@ -653,19 +562,29 @@ class Reader:
         tables = DatabaseTableHandler.split(self.task, self.settings.get("execute_way"))
         # 排除配置不需要的字段
         if not self.task.columns:
-            Metadata = MetadataTable.objects.filter(
-                name=self.task.source_table, db_name=self.task.source_db
+            Metadata_source = MetadataTable.objects.filter(
+                name=self.task.source_table, 
+                db_name=self.task.source_db,
+                data_source=self.task.data_source
             ).first()
-            if not Metadata:
-                columns_source = _sync_single_metadata(
+            
+            # 如果没有缓存则同步并刷新缓存
+            if not Metadata_source:
+                _sync_single_metadata(
                     self.task.data_source,
                     self.task.source_db,
                     self.task.source_table,
                     self.config,
                     tables,
                 )
-            else:
-                columns_source = Metadata.meta_data
+                # 重新查询获取最新元数据
+                Metadata_source = MetadataTable.objects.get(
+                    name=self.task.source_table,
+                    db_name=self.task.source_db,
+                    data_source=self.task.data_source
+                )
+
+            columns_source = Metadata_source.meta_data
             columns_source = self._exclude_column(columns_source)
         else:
             columns_source = self._exclude_column(self.task.columns)
@@ -679,7 +598,7 @@ class Reader:
         source_not_exist = []
         target_not_exist = []
         Metadata_target = MetadataTable.objects.filter(
-            name=self.task.target_table, db_name=self.task.target_db
+            name=self.task.target_table, db_name=self.task.target_db,data_source=self.task.data_target
         ).first()
         if not Metadata_target:
             columns_target = _sync_single_metadata(
@@ -768,6 +687,7 @@ class Reader:
                 )
                 self.source_columns.append(
                     {
+                        "index":columns_source.index(source_column),
                         "name": column["name"],
                         "type": datax_type,
                         "value": source_column.get('value'),
@@ -861,7 +781,8 @@ class Reader:
         compress=self.task.config.get('compress','NONE')
         fileType=self.task.config.get('fileType','orc')
         fieldDelimiter=self.task.config.get('fieldDelimiter','\u0001')
-        source_columns_format=[{'index':i,'type':j.get('type')} for i,j in enumerate(self.source_columns)]
+        source_columns_format=[{'index':i.get('index'),'type':i.get('type')} for i in self.source_columns]
+
         
         reader_parameter = {
             "column": source_columns_format,

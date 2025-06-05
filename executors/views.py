@@ -279,7 +279,8 @@ class LogStatisticsAPI(APIView):
             'success': 0,
             'fail': 0,
             'running': 0,
-            'bak': 0
+            'bak': 0,
+            'stop': 0,
         }
         for stat in status_stats:
             if stat['executed_state'] == 'success':
