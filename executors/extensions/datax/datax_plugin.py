@@ -803,7 +803,7 @@ class Reader:
             else:
                 reader_parameter["path"]=reader_parameter["path"]%(self.task.source_db,self.task.source_table+"*",)
         else:
-            if self.settings.get("execute_way")  and self.task.is_partition:
+            if self.settings.get("execute_way")=='all'  and self.task.is_partition:
                 reader_parameter["path"]=reader_parameter["path"]%(self.task.source_db,self.task.source_table,"*")
             elif not self.task.is_partition:
                 reader_parameter["path"]=f"/user/hive/warehouse/{self.task.source_db}.db/{self.task.source_table}/*"

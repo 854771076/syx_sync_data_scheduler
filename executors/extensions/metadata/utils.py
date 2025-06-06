@@ -182,11 +182,13 @@ class HiveUtil:
     @staticmethod
     def get_hive_client_by_config(config,datasource):
         if config.get("ENV")=="dev":
-            hive_host=config.get("HIVE_HOST_DEV")
-            hive_port=int(config.get("HIVE_PORT_DEV",10000))
+            hive_host_defualt=config.get("HIVE_HOST_DEV")
+            hive_port_defualt=int(config.get("HIVE_PORT_DEV",10000))
         else:
-            hive_host=config.get("HIVE_HOST")
-            hive_port=int(config.get("HIVE_PORT",10000))
+            hive_host_defualt=config.get("HIVE_HOST")
+            hive_port_defualt=int(config.get("HIVE_PORT",10000))
+        hive_host=datasource.connection.params.get('HIVE_HOST',hive_host_defualt)
+        hive_port=int(datasource.connection.params.get('HIVE_PORT',hive_port_defualt))
         hive_user=datasource.connection.username
         hive_password=datasource.connection.password
         if hive_user and hive_password:

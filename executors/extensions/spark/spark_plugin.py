@@ -121,21 +121,32 @@ class SparkWriter:
 
     @staticmethod
     def other2hive(cls):
+        delete_sql=''
         if cls.task.is_partition:
             partition_sql=f'df = df.withColumn("partition_date", F.lit("{cls.settings.get("partition_date")}"))\n'
             if cls.settings.get("execute_way")=='all':
+                delete_sql+=f'hdfs_path = sc._jvm.Path(f"/user/hive/warehouse/{cls.task.target_db}.db/{cls.task.target_table}")\n'
+                delete_sql+='    if fs.exists(hdfs_path):\n        fs.delete(hdfs_path, True)\n        logger.info(f"Deleted HDFS path: {hdfs_path}")\n    else:\n        logger.info(f"HDFS path does not exist: {hdfs_path}")\n'
                 insert_sql=f'df.write.mode("overwrite").partitionBy("partition_date").format("orc").saveAsTable("{cls.task.target_db}.{cls.task.target_table}")'
             elif cls.settings.get("execute_way")=='update':
+                delete_sql+=f'hdfs_path = sc._jvm.Path(f"/user/hive/warehouse/{cls.task.target_db}.db/{cls.task.target_table}/partition_date={cls.settings.get("partition_date")}")\n'
+                delete_sql+='    if fs.exists(hdfs_path):\n        fs.delete(hdfs_path, True)\n        logger.info(f"Deleted HDFS path: {hdfs_path}")\n    else:\n        logger.info(f"HDFS path does not exist: {hdfs_path}")\n'
                 if cls.task.is_delete:
                     insert_sql=f'df.createOrReplaceTempView("temp_table_{cls.task.target_db}.{cls.task.target_table}")\n    spark.sql(\'INSERT OVERWRITE  INTO TABLE {cls.task.target_db}.{cls.task.target_table} PARTITION (partition_date = "{cls.settings.get("partition_date")}") SELECT * FROM temp_table_{cls.task.target_db}.{cls.task.target_table}\')'
-                insert_sql=f'df.createOrReplaceTempView("temp_table_{cls.task.target_db}.{cls.task.target_table}")\n    spark.sql(\'INSERT INTO TABLE {cls.task.target_db}.{cls.task.target_table} PARTITION (partition_date = "{cls.settings.get("partition_date")}") SELECT * FROM temp_table_{cls.task.target_db}.{cls.task.target_table}\')'
+                else:
+                    insert_sql=f'df.createOrReplaceTempView("temp_table_{cls.task.target_db}.{cls.task.target_table}")\n    spark.sql(\'INSERT INTO TABLE {cls.task.target_db}.{cls.task.target_table} PARTITION (partition_date = "{cls.settings.get("partition_date")}") SELECT * FROM temp_table_{cls.task.target_db}.{cls.task.target_table}\')'
             elif cls.settings.get("execute_way")=='other':
+                delete_sql+=f'hdfs_path = sc._jvm.Path(f"/user/hive/warehouse/{cls.task.target_db}.db/{cls.task.target_table}/partition_date={cls.settings.get("partition_date")}")\n'
+                delete_sql+='    if fs.exists(hdfs_path):\n        fs.delete(hdfs_path, True)\n        logger.info(f"Deleted HDFS path: {hdfs_path}")\n    else:\n        logger.info(f"HDFS path does not exist: {hdfs_path}")\n'
                 if cls.task.is_delete:
                     insert_sql=f'df.createOrReplaceTempView("temp_table_{cls.task.target_db}.{cls.task.target_table}")\n    spark.sql(\'INSERT OVERWRITE  INTO TABLE {cls.task.target_db}.{cls.task.target_table} PARTITION (partition_date = "{cls.settings.get("partition_date")}") SELECT * FROM temp_table_{cls.task.target_db}.{cls.task.target_table}\')'
-                insert_sql=f'df.createOrReplaceTempView("temp_table_{cls.task.target_db}.{cls.task.target_table}")\n    spark.sql(\'INSERT INTO TABLE {cls.task.target_db}.{cls.task.target_table} PARTITION (partition_date = "{cls.settings.get("partition_date")}") SELECT * FROM temp_table_{cls.task.target_db}.{cls.task.target_table}\')'
+                else:
+                    insert_sql=f'df.createOrReplaceTempView("temp_table_{cls.task.target_db}.{cls.task.target_table}")\n    spark.sql(\'INSERT INTO TABLE {cls.task.target_db}.{cls.task.target_table} PARTITION (partition_date = "{cls.settings.get("partition_date")}") SELECT * FROM temp_table_{cls.task.target_db}.{cls.task.target_table}\')'
             else:
                 raise Exception("Unsupported execute_way: {}".format(cls.settings.get("execute_way")))
         else:
+            delete_sql+=f'hdfs_path = sc._jvm.Path(f"/user/hive/warehouse/{cls.task.target_db}.db/{cls.task.target_table}")\n'
+            delete_sql+='    if fs.exists(hdfs_path):\n        fs.delete(hdfs_path, True)\n        logger.info(f"Deleted HDFS path: {hdfs_path}")\n    else:\n        logger.info(f"HDFS path does not exist: {hdfs_path}")\n'
             partition_sql=''
             insert_sql=f'df.write.mode("overwrite").format("orc").saveAsTable("{cls.task.target_db}.{cls.task.target_table}")'
         code_template = f"""
@@ -147,6 +158,7 @@ def writer(spark,df):
         logger.info("读取数据为空，跳过写入")
         return read_num
     {partition_sql}
+    {delete_sql}
     {insert_sql}    
     logger.info("保存 {cls.task.target_db}.{cls.task.target_table} 成功")
     return read_num
@@ -328,6 +340,7 @@ class SparkPlugin:
         imports+="import urllib.parse\n"
         imports+="from pyspark.sql.functions import to_json, col\n"
         imports+="from pyspark.sql.types import ArrayType, StructType\n"
+        imports+="from py4j.java_gateway import java_import\n"
         return imports
     def generate_main(self):
         code ='if __name__ == "__main__":\n'
@@ -335,10 +348,18 @@ class SparkPlugin:
         code +=f'        .appName("{self.task.name}") \\\n'
         code +=f'       .master("{self.master}") \\\n'
         code +='        .getOrCreate()\n'
+        code +='    sc = spark.sparkContext\n'
+        code +='    hadoop_conf = sc._jsc.hadoopConfiguration()\n'
+        code +='    java_import(sc._jvm, "org.apache.hadoop.fs.Path")\n'
+        code +='    java_import(sc._jvm, "org.apache.hadoop.fs.FileSystem")\n'
+        code +='    FileSystem = sc._jvm.FileSystem\n'
+        code +='    fs = FileSystem.get(hadoop_conf)\n'
         code +='    df=reader(spark)\n'
         code +='    num=writer(spark,df)\n'
         code +='    logger.info(f"读出记录总数:{num}|")\n'
         code +='    spark.stop()\n'
+
+
         return code
 
     def generate_code(self):
@@ -453,6 +474,8 @@ class SparkPlugin:
             'error_num':error_num,
             'is_None':is_None, 
         }
+    def pre_execute(self):
+        pass
     def execute_spark(cls,retry=False):
         """执行Spark任务"""
         from ...models import Task,ConfigItem,Log,DataSource
@@ -477,7 +500,7 @@ class SparkPlugin:
                 command = f'export HADOOP_USER_NAME={cls.task.project.tenant.name}&&export PYSPARK_PYTHON="/home/anaconda3/bin/python3"&&spark-submit  --queue {cls.task.project.tenant.queue} --jars $(echo {cls.jars_dir}/*.jar | tr " " ",") {cls.spark_conf} {config_path} > {log_path} 2>&1'
             # 执行中日志
             logger.info(f"执行 Spark 任务 {cls.task.id}，命令：{command}")
-            log_obj, created = Log.objects.get_or_create(
+            log_obj, created = Log.objects.update_or_create(
                 task=cls.task,
                 partition_date=cls.settings.get('partition_date'),
                 execute_way=cls.settings.get('execute_way'),
@@ -494,19 +517,6 @@ class SparkPlugin:
                     'pid':''
                 }
             )
-            if not created:
-                # 如果记录已存在，则更新
-                log_obj.executed_state = 'process'
-                log_obj.complit_state = 2
-                log_obj.start_time = cls.settings.get('start_time')
-                log_obj.end_time = cls.settings.get('end_time')
-                log_obj.local_row_update_time_start = start_time
-                log_obj.local_row_update_time_end = None
-                log_obj.numrows = None
-                log_obj.remark = '执行中'
-                log_obj.spark_code = cls.task.spark_code
-                log_obj.pid=''
-                log_obj.save()
             if not retry and cls.settings.get('execute_way') not in ['retry','action']:
                 while not cls.is_depend():
                     new_log=Log.objects.filter(
@@ -525,7 +535,7 @@ class SparkPlugin:
                     shell=True, encoding='utf-8',preexec_fn=os.setsid
                 )
             pid = process.pid
-            log_obj, created = Log.objects.get_or_create(
+            log_obj, created = Log.objects.update_or_create(
                 task=cls.task,
                 partition_date=cls.settings.get('partition_date'),
                 execute_way=cls.settings.get('execute_way'),
@@ -542,19 +552,6 @@ class SparkPlugin:
                     'pid':pid
                 }
             )
-            if not created:
-                # 如果记录已存在，则更新
-                log_obj.executed_state = 'process'
-                log_obj.complit_state = 2
-                log_obj.start_time = cls.settings.get('start_time')
-                log_obj.end_time = cls.settings.get('end_time')
-                log_obj.local_row_update_time_start = start_time
-                log_obj.local_row_update_time_end = None
-                log_obj.numrows = None
-                log_obj.remark = '执行中'
-                log_obj.datax_json = cls.task.datax_json
-                log_obj.pid=pid
-                log_obj.save()
             returncode = process.wait()
             end_time=datetime.now()
             stderr=process.stderr
@@ -571,7 +568,7 @@ class SparkPlugin:
                 if log.get('error_num')>0:
                     logger.error(f"Spark 任务 {cls.task.id} 执行失败")
                     # 按唯一键查找或创建记录
-                    log_obj, created = Log.objects.get_or_create(
+                    log_obj, created = Log.objects.update_or_create(
                         task=cls.task,
                         partition_date=cls.settings.get('partition_date'),
                         execute_way=cls.settings.get('execute_way'),
@@ -588,24 +585,10 @@ class SparkPlugin:
                             'pid':pid
                         }
                     )
-                    if not created:
-                        # 如果记录已存在，则更新
-                        log_obj.executed_state = 'fail'
-                        log_obj.complit_state = 0
-                        log_obj.start_time = cls.settings.get('start_time')
-                        log_obj.end_time = cls.settings.get('end_time')
-                        log_obj.local_row_update_time_start = start_time
-                        log_obj.local_row_update_time_end = end_time
-                        log_obj.numrows = log.get('read_num')
-                        log_obj.remark = "查看详细日志"
-                        log_obj.spark_code = cls.task.spark_code
-                        log_obj.pid=pid
-                        log_obj.save()
-
                 elif log.get('is_None'):
                     logger.warning(f"Spark 任务 {cls.task.id} 执行完成，但是没有读取到数据")
                     # 按唯一键查找或创建记录
-                    log_obj, created = Log.objects.get_or_create(
+                    log_obj, created = Log.objects.update_or_create(
                         task=cls.task,
                         partition_date=cls.settings.get('partition_date'),
                         execute_way=cls.settings.get('execute_way'),
@@ -622,23 +605,11 @@ class SparkPlugin:
                             'pid':pid
                         }
                     )
-                    if not created:
-                        # 如果记录已存在，则更新
-                        log_obj.executed_state = 'success'
-                        log_obj.complit_state = 1
-                        log_obj.start_time = cls.settings.get('start_time')
-                        log_obj.end_time = cls.settings.get('end_time')
-                        log_obj.local_row_update_time_start = start_time
-                        log_obj.local_row_update_time_end = end_time
-                        log_obj.numrows = log.get('read_num')
-                        log_obj.remark = f"Spark 任务 {cls.task.id} 执行完成，但是没有读取到数据"
-                        log_obj.spark_code = cls.task.spark_code
-                        log_obj.pid=pid
-                        log_obj.save()
+
                 else:
                     logger.info(f"Spark 任务 {cls.task.id} 执行完成，读取到 {log.get('read_num')} 条数据")
                     # 按唯一键查找或创建记录
-                    log_obj, created = Log.objects.get_or_create(
+                    log_obj, created = Log.objects.update_or_create(
                         task=cls.task,
                         partition_date=cls.settings.get('partition_date'),
                         execute_way=cls.settings.get('execute_way'),
@@ -655,26 +626,14 @@ class SparkPlugin:
                             'pid':pid
                         }
                     )
-                    if not created:
-                        # 如果记录已存在，则更新
-                        log_obj.executed_state = 'success'
-                        log_obj.complit_state = 1
-                        log_obj.start_time = cls.settings.get('start_time')
-                        log_obj.end_time = cls.settings.get('end_time')
-                        log_obj.local_row_update_time_start = start_time
-                        log_obj.local_row_update_time_end = end_time
-                        log_obj.numrows = log.get('read_num')
-                        log_obj.remark = f"Spark 任务 {cls.task.id} 执行完成，读取到 {log.get('read_num')} 条数据"
-                        log_obj.spark_code = cls.task.spark_code
-                        log_obj.pid=pid
-                        log_obj.save()
+                    
                 
                 return True,stdout
             else:
                 end_time=datetime.now()
                 logger.exception(f"Spark 任务 {cls.task.id} 执行失败")
                 # 按唯一键查找或创建记录
-                log_obj, created = Log.objects.get_or_create(
+                log_obj, created = Log.objects.update_or_create(
                     task=cls.task,
                     partition_date=cls.settings.get('partition_date'),
                     execute_way=cls.settings.get('execute_way'),
@@ -691,25 +650,13 @@ class SparkPlugin:
                         'pid':pid
                     }
                 )
-                if not created:
-                    # 如果记录已存在，则更新
-                    log_obj.executed_state = 'fail'
-                    log_obj.complit_state = str(0)
-                    log_obj.start_time = cls.settings.get('start_time')
-                    log_obj.end_time = cls.settings.get('end_time')
-                    log_obj.local_row_update_time_start = start_time
-                    log_obj.local_row_update_time_end = end_time
-                    log_obj.numrows = 0
-                    log_obj.remark = "查看详细日志"
-                    log_obj.spark_code = cls.task.spark_code
-                    log_obj.pid=pid
-                    log_obj.save()
+                
                 return False,stderr
         except Exception as e:
             end_time=datetime.now()
             logger.exception(f"Spark 任务 {cls.task.id} 执行异常: {e}")
             # 按唯一键查找或创建记录
-            log_obj, created = Log.objects.get_or_create(
+            log_obj, created = Log.objects.update_or_create(
                 task=cls.task,
                 partition_date=cls.settings.get('partition_date'),
                 execute_way=cls.settings.get('execute_way'),
@@ -726,19 +673,7 @@ class SparkPlugin:
                     'pid':pid
                 }
             )
-            if not created:
-                # 如果记录已存在，则更新
-                log_obj.executed_state = 'fail'
-                log_obj.complit_state = str(0)
-                log_obj.start_time = cls.settings.get('start_time')
-                log_obj.end_time = cls.settings.get('end_time')
-                log_obj.local_row_update_time_start = start_time
-                log_obj.local_row_update_time_end = end_time
-                log_obj.numrows = 0
-                log_obj.remark = str(e)
-                log_obj.spark_code = cls.task.spark_code
-                log_obj.pid=pid
-                log_obj.save()
+            
             return False,str(e)
 
 
