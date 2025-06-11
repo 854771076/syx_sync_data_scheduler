@@ -3,6 +3,7 @@ from .models import *
 from  pathlib import Path
 from django.contrib import admin
 from .actions import *
+from django.http import HttpResponse
 from django.utils.html import format_html
 import os
 import signal
@@ -262,6 +263,64 @@ class LogAdmin(admin.ModelAdmin):
 
 
     )
+    # 当前文件绝对路径
+    current_file_path = os.path.abspath(__file__)
+    # static路径
+    static_path = os.path.join(os.path.dirname(current_file_path), 'static')
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path('log_detail/<int:task_id>/<str:partition_date>/<str:execute_way>', self.admin_site.admin_view(self.log_detail_view), name='log_detail'),
+            path('log_file/<int:task_id>/<str:partition_date>/<str:execute_way>', self.admin_site.admin_view(self.log_file_view), name='log_file')
+        ]
+        return custom_urls + urls
+
+    def log_file_view(self, request, task_id, partition_date, execute_way):
+        log = Log.objects.get(task__id=task_id, partition_date=partition_date, execute_way=execute_way)
+        
+        # 获取实际日志路径
+        if log.task.project.engine == 'datax':
+            log_path = f"datax_logs/{partition_date}/{task_id}"
+        elif log.task.project.engine =='spark':
+            log_path = f"spark_logs/{partition_date}/{task_id}"
+        else:
+            log_path = f"logs/{partition_date}/{task_id}"   
+        
+        if execute_way == 'retry':
+            full_path = self.static_path/Path(f"{log_path}_retry.log")
+        else:
+            full_path = self.static_path/Path(f"{log_path}.log")
+
+        if full_path.exists():
+            with open(full_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                response = HttpResponse(content, content_type='text/plain; charset=utf-8')
+                response['Content-Disposition'] = f'inline; filename="{full_path.name}"'
+                return response
+        return HttpResponse("File not found", status=404)
+
+    def log_detail_view(self, request, task_id, partition_date,execute_way):
+        log = Log.objects.get(task__id=task_id, partition_date=partition_date,execute_way=execute_way)
+        if log.task.project.engine == 'datax':
+            log_path = f"datax_logs/{partition_date}/{task_id}"
+        elif log.task.project.engine =='spark':
+            log_path = f"spark_logs/{partition_date}/{task_id}"
+        else:
+            log_path = f"logs/{partition_date}/{task_id}"   
+        
+        if execute_way == 'retry':
+            full_path = self.static_path/Path(f"{log_path}_retry.log")
+        else:
+            full_path = self.static_path/Path(f"{log_path}.log")
+        context = {
+            'task': log.task,
+            'partition_date': partition_date,
+            'log_path': log_path,
+            'execute_way': execute_way,
+            'last_modified': time.ctime(full_path.stat().st_mtime) if full_path.exists() else '',
+            'opts': self.model._meta
+        }
+        return render(request, 'admin/log_detail.html', context)
     # 执行时间local_row_update_time_end-local_row_update_time_start
     @admin.display(description='执行时间')
     def execute_time(self, obj):
@@ -269,20 +328,23 @@ class LogAdmin(admin.ModelAdmin):
             return obj.local_row_update_time_end - obj.local_row_update_time_start
     @admin.display(description='日志详细')
     def log_file(self, obj):
+        url = reverse('admin:log_detail', args=[obj.task.id, obj.partition_date,obj.execute_way])
+        return format_html(f'<a href="{url}" target="_blank">查看详细日志</a>')
+    # def log_file(self, obj):
         
-        if obj.task.project.engine == 'datax':
-            if obj.execute_way=='retry':
-                logs_path = f"/static/datax_logs/{obj.partition_date}/{obj.task.id}_retry.log"
-            else:
-                logs_path = f"/static/datax_logs//{obj.partition_date}/{obj.task.id}.log"
-        elif obj.task.project.engine == 'spark':
-            if obj.execute_way=='retry':
-                logs_path = f"/static/spark_logs/{obj.partition_date}/{obj.task.id}_retry.log"
-            else:
-                logs_path = f"/static/spark_logs//{obj.partition_date}/{obj.task.id}.log"
-        else:
-            return "日志文件不存在"
-        return format_html('<a href="{}" target="_blank">查看日志</a>', logs_path)
+    #     if obj.task.project.engine == 'datax':
+    #         if obj.execute_way=='retry':
+    #             logs_path = f"/static/datax_logs/{obj.partition_date}/{obj.task.id}_retry.log"
+    #         else:
+    #             logs_path = f"/static/datax_logs/{obj.partition_date}/{obj.task.id}.log"
+    #     elif obj.task.project.engine == 'spark':
+    #         if obj.execute_way=='retry':
+    #             logs_path = f"/static/spark_logs/{obj.partition_date}/{obj.task.id}_retry.log"
+    #         else:
+    #             logs_path = f"/static/spark_logs/{obj.partition_date}/{obj.task.id}.log"
+    #     else:
+    #         return "日志文件不存在"
+    #     return format_html('<a href="{}" target="_blank">查看日志</a>', logs_path)
         
     
 

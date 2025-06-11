@@ -495,27 +495,71 @@ class DataXPlugin:
                 
                 return True,stdout
             else:
-                end_time=datetime.now()
-                logger.exception(f"DataX 任务 {cls.task.id} 执行失败")
-                # 按唯一键查找或创建记录
-                log_obj, created = Log.objects.update_or_create(
-                    task=cls.task,
-                    partition_date=cls.settings.get('partition_date'),
-                    execute_way=cls.settings.get('execute_way'),
-                    defaults={
-                        'executed_state': 'fail',
-                        'complit_state': str(0),
-                        'start_time': cls.settings.get('start_time'),
-                        'end_time': cls.settings.get('end_time'),
-                        'local_row_update_time_start': start_time,
-                        'local_row_update_time_end': end_time,
-                        'numrows': 0,
-                        'remark': "查看详细日志",
-                        'datax_json': cls.task.datax_json,
-                        'pid':pid
-                    }
-                )
-                return False,stderr
+                log=DataxUtil.parse_log(log_data)
+                # 记录日志
+                if log.get('error_num')>0:
+                    logger.error(f"DataX 任务 {cls.task.id} 执行失败")
+                    # 按唯一键查找或创建记录
+                    log_obj, created = Log.objects.update_or_create(
+                        task=cls.task,
+                        partition_date=cls.settings.get('partition_date'),
+                        execute_way=cls.settings.get('execute_way'),
+                        defaults={
+                            'executed_state': 'fail',
+                            'complit_state': 0,
+                            'start_time': cls.settings.get('start_time'),
+                            'end_time': cls.settings.get('end_time'),
+                            'local_row_update_time_start': start_time,
+                            'local_row_update_time_end': end_time,
+                            'numrows': log.get('read_num'),
+                            'remark': "查看详细日志",
+                            'datax_json': cls.task.datax_json,
+                            'pid':pid
+                            
+                        }
+                    )
+
+                elif log.get('is_None'):
+                    logger.warning(f"DataX 任务 {cls.task.id} 执行完成，但是没有读取到数据")
+                    # 按唯一键查找或创建记录
+                    log_obj, created = Log.objects.update_or_create(
+                        task=cls.task,
+                        partition_date=cls.settings.get('partition_date'),
+                        execute_way=cls.settings.get('execute_way'),
+                        defaults={
+                            'executed_state': 'success',
+                            'complit_state': 1,
+                            'start_time': cls.settings.get('start_time'),
+                            'end_time': cls.settings.get('end_time'),
+                            'local_row_update_time_start': start_time,
+                            'local_row_update_time_end': end_time,
+                            'numrows': log.get('read_num'),
+                            'remark': f"DataX 任务 {cls.task.id} 执行完成，但是没有读取到数据",
+                            'datax_json': cls.task.datax_json,
+                            'pid':pid
+                        }
+                    )
+                else:
+                    logger.exception(f"DataX 任务 {cls.task.id} 执行失败")
+                    # 按唯一键查找或创建记录
+                    log_obj, created = Log.objects.update_or_create(
+                        task=cls.task,
+                        partition_date=cls.settings.get('partition_date'),
+                        execute_way=cls.settings.get('execute_way'),
+                        defaults={
+                            'executed_state': 'fail',
+                            'complit_state': str(0),
+                            'start_time': cls.settings.get('start_time'),
+                            'end_time': cls.settings.get('end_time'),
+                            'local_row_update_time_start': start_time,
+                            'local_row_update_time_end': end_time,
+                            'numrows': 0,
+                            'remark': "查看详细日志",
+                            'datax_json': cls.task.datax_json,
+                            'pid':pid
+                        }
+                    )
+                    return False,stderr
         except Exception as e:
             end_time=datetime.now()
             logger.exception(f"DataX 任务 {cls.task.id} 执行异常: {e}")
@@ -534,7 +578,7 @@ class DataXPlugin:
                     'numrows': 0,
                     'remark': str(e),
                     'datax_json': cls.task.datax_json,
-                    'pid':pid
+                    'pid':''
                 }
             )
             return False,str(e)
@@ -781,9 +825,12 @@ class Reader:
         compress=self.task.config.get('compress','NONE')
         fileType=self.task.config.get('fileType','orc')
         fieldDelimiter=self.task.config.get('fieldDelimiter','\u0001')
-        source_columns_format=[{'index':i.get('index'),'type':i.get('type')} for i in self.source_columns]
-
-        
+        source_columns_format=[ ]
+        for i in self.source_columns:
+            if i.get('index') is not None:
+                source_columns_format.append({'index':i.get('index'),'type':i.get('type')})
+            else:
+                source_columns_format.append({'value': 'NULL','nullFormat': '\\N','type':"STRING"})
         reader_parameter = {
             "column": source_columns_format,
             "nullFormat": "\\N",

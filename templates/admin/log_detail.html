@@ -1,0 +1,105 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+{% block title %} 日志详情{% endblock %}
+{% block extrastyle %}
+{{ block.super }}
+
+<link href="{% static 'bootstrap.min.css' %}" rel="stylesheet">
+<link href="{% static 'jquery-3.6.0.min.js' %}" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <div class="card border-0 shadow-lg mt-4">
+        <div class="card-header text-white py-3">
+            <div class="d-flex justify-content-between align-items-center">
+                <h5 class="m-0">
+                    <i class="fas fa-file-alt me-2"></i>日志详情
+                </h5>
+                <div>
+                    <div class="form-check form-switch d-inline-block me-3 text-black">
+                        <input class="form-check-input" type="checkbox" id="auto-refresh-switch">
+                        <label class="form-check-label" for="auto-refresh-switch">
+                            <i class="fas fa-sync-alt"></i> 自动刷新
+                        </label>
+                    </div>
+                    <a href="/static/{{ log_path }}.log" download class="btn btn-sm btn-light me-2">
+                        <i class="fas fa-download me-1"></i>下载
+                    </a>
+                    <button id="refresh-btn" class="btn btn-sm btn-light">
+                        <i class="fas fa-redo me-1"></i>手动刷新
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card-body p-0">
+            <div class="p-4 border-bottom">
+                <small class="text-muted">
+                    <i class="fas fa-clock me-1"></i>最后更新：{{ last_modified }}
+                </small>
+            </div>
+            <iframe id="log-iframe" 
+                src="{% url 'admin:log_file' task.id partition_date execute_way %}"
+                class="w-100 border-0"
+                    style="height: 70vh; min-height: 500px;">
+        </iframe>
+        </div>
+    </div>
+</div>
+
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const iframe = document.getElementById('log-iframe');
+    const refreshBtn = document.getElementById('refresh-btn');
+    const autoRefreshSwitch = document.getElementById('auto-refresh-switch');
+    // 默认开启自动刷新
+    let refreshInterval = null;
+
+    // 初始加载后滚动到底部
+    iframe.onload = function() {
+        const doc = iframe.contentDocument || iframe.contentWindow.document;
+        doc.documentElement.scrollTop = doc.documentElement.scrollHeight;
+    };
+    // 统一刷新函数
+    function performRefresh() {
+        iframe.contentWindow.location.reload();
+        // 添加滚动到底部回调
+        var doc = iframe.contentDocument || iframe.contentWindow.document;
+        doc.documentElement.scrollTop = doc.documentElement.scrollHeight;
+        // 兼容性处理：同时滚动body元素
+        //doc.body.scrollTop = doc.body.scrollHeight;
+    }
+
+    // 手动刷新
+    refreshBtn.addEventListener('click', performRefresh);
+
+    // 自动刷新控制
+    autoRefreshSwitch.addEventListener('change', function() {
+        if (this.checked) {
+            refreshInterval = setInterval(performRefresh, 5000);
+            refreshBtn.disabled = true;
+        } else {
+            clearInterval(refreshInterval);
+            refreshBtn.disabled = false;
+        }
+    });
+    autoRefreshSwitch.checked = true;
+    autoRefreshSwitch.dispatchEvent(new Event('change'));
+});
+</script>
+
+<style>
+.card {
+    margin: 20px;
+    border-radius: 8px;
+}
+pre {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+}
+</style>
+{% endblock %}

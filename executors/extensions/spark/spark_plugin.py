@@ -670,7 +670,7 @@ class SparkPlugin:
                     'numrows': 0,
                     'remark': str(e),
                     'spark_code': cls.task.spark_code,
-                    'pid':pid
+                    'pid':''
                 }
             )
             

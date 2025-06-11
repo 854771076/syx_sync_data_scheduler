@@ -224,7 +224,7 @@ SIMPLEUI_CONFIG = {
                  'url': '/admin/executors/datasource/',
                  },
                  {
-                 'name': '数据表',
+                 'name': '数据字段缓存',
                  'url': '/admin/executors/metadatatable/',
                  },
                  

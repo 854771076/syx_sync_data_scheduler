@@ -67,11 +67,10 @@ python manage.py createsuperuser
 ### 4.3 服务启动
 
 ```bash
-# 开发模式
-python manage.py runserver
+python bin/manage_server.py start
+python bin/manage_server.py stop
+python bin/manage_server.py restart
 
-# 生产模式
-gunicorn syx_sync_data_scheduler.wsgi:application -w 4
 ```
 
 ## 五、功能使用
@@ -103,7 +102,7 @@ syx_sync_data_scheduler/
 ├── executors/          # 核心模块
 │   ├── admin.py        # 管理后台配置
 │   ├── extensions/     # 数据同步插件
-│   └── management/     # 调度命令
+
 ```
 
 ### 7.2 管理后台操作
