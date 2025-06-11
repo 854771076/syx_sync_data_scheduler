@@ -382,3 +382,20 @@ def kill_process_group(pid, timeout=10):
     except Exception as e:
         logger.error(f"终止进程组时出错: {e}")
         return False
+    
+def clear_cache_columns(modeladmin, request, queryset):
+    from .models import MetadataTable
+    for obj in queryset:
+        try:
+            MetadataTable.objects.filter(data_source=obj.data_source,
+            db_name=obj.source_db,
+            name=obj.source_table).delete()
+            MetadataTable.objects.filter(data_source=obj.data_target,
+            db_name=obj.target_db,
+            name=obj.target_table).delete()
+            logger.debug(f"清除元数据缓存：{obj.data_source} {obj.source_db} {obj.source_table}")
+            logger.debug(f"清除元数据缓存：{obj.data_target} {obj.target_db} {obj.target_table}")
+        except Exception as e:
+            logger.exception(e)
+            messages.error(request, str(e))
+clear_cache_columns.short_description = "清除元数据缓存"

@@ -144,7 +144,7 @@ class TaskAdmin(admin.ModelAdmin):
     search_fields = ('id','name', 'project__name')
     list_display_links = ('id','name')
     ordering = ('-created_at','-updated_at')
-    actions = [copy_data,execute_datax_tasks_generate_config_update,execute_datax_tasks_generate_config_all,execute_datax_tasks_execute_json,execute_datax_tasks,enable,disable,create_table]
+    actions = [copy_data,execute_datax_tasks_generate_config_update,execute_datax_tasks_generate_config_all,execute_datax_tasks_execute_json,execute_datax_tasks,enable,disable,create_table,clear_cache_columns]
     fieldsets = (
         ('基础信息', {
             'fields': (
