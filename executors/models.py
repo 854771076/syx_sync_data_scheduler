@@ -226,7 +226,7 @@ class Task(models.Model):
     source_table = models.CharField(max_length=255, verbose_name="源表名称")
     target_db = models.CharField(max_length=255, verbose_name="目标数据库名称")
     target_table = models.CharField(max_length=255, verbose_name="目标表名称")
-    is_delete = models.BooleanField(default=False, verbose_name="是否删除")
+    is_delete = models.BooleanField(default=False, verbose_name="是否删除(注：配置了删除后，导入hdfs时，配置了分区表则会覆盖分区目录，非分区表则覆盖整个表目录，导入mysql或者starrocks时，如果未配置更新字段则默认会删除整个表数据再写入，配置了更新字段则会根据更新字段删除分区时间数据)")
     split_config = models.ForeignKey(SplitConfig, on_delete=models.SET_NULL, verbose_name="分库分表配置", null=True, blank=True)
     # column_config = models.ForeignKey(ColumnConfig, on_delete=models.SET_NULL, verbose_name="字段配置", null=True, blank=True)
     partition_column = models.CharField(max_length=255, null=True, blank=True, verbose_name="分区字段", default="partition_date")
@@ -401,31 +401,35 @@ class AsyncTaskStatus(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
 
-# @receiver(post_save, sender=Task)
-# def sync_table_metadata(sender, instance:Task, created, **kwargs):
-#     from executors.extensions.metadata.utils import DatabaseTableHandler
-#     """监听任务创建/更新，同步表元数据"""
-#     try:
-#         # 排除某个字段的更新
-#         if not  created and kwargs.get('update_fields'):
-#             if 'datax_json' not in kwargs.get('update_fields') and 'spark_code' not in kwargs.get('update_fields'):
-#                 MetadataTable.objects.filter(data_source=instance.data_source,
-#                 db_name=instance.source_db,
-#                 name=instance.source_table).delete()
-#                 MetadataTable.objects.filter(data_source=instance.data_target,
-#                 db_name=instance.source_db,
-#                 name=instance.source_table).delete()
-#     except Exception as e:
-#         logger.error(e)
-
-
 
 # 启动时更新所有任务的元数据
 def update_all_tasks_metadata():
     """启动时更新所有任务的元数据"""
-    for task in Task.objects.filter(is_active=True):
+    config = dict(ConfigItem.objects.all().values_list("key", "value"))
+    project_list=Project.objects.filter(is_active=True)
+    # 查询出项目中所有task
+    task_list=[]
+    for project in project_list:
+        task_list+=list(Task.objects.filter(project=project,is_active=True))
+    for task in task_list:
+        tables = DatabaseTableHandler.split(task, 'update')
         try:
-            sync_table_metadata(sender=Task, instance=task, created=False)
+             _sync_single_metadata(
+                task.data_target,
+                task.target_db,
+                task.target_table,
+                config,
+            )
+        except Exception as e:
+            logger.error(e)
+        try:
+            _sync_single_metadata(
+                task.data_source,
+                task.source_db,
+                task.source_table,
+                config,
+                tables
+            )
         except Exception as e:
             logger.error(e)
 

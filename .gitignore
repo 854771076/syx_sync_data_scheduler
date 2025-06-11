@@ -17,4 +17,5 @@ backups
 metastore_db
 *logs
 *output
-bin
+bin/tables
+bin/*配置.py
