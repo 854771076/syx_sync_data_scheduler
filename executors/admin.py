@@ -433,21 +433,13 @@ class MetadataTableAdmin(admin.ModelAdmin):
         # 优先使用meta_data字段数据
         if obj.meta_data:
             html = "<table style='width:100%;border-collapse:collapse;'>"
-            html += "<tr><th style='border:1px solid #ddd;padding:8px;text-align:left;'>字段名</th><th style='border:1px solid #ddd;padding:8px;text-align:left;'>类型</th></tr>"
+            html += "<tr><th style='border:1px solid #ddd;padding:8px;text-align:left;'>字段名</th><th style='border:1px solid #ddd;padding:8px;text-align:left;'>类型</th><th style='border:1px solid #ddd;padding:8px;text-align:left;'>注释</th></tr>"
             for field in obj.meta_data:
-                html += f"<tr><td style='border:1px solid #ddd;padding:8px;'>{field['name']}</td><td style='border:1px solid #ddd;padding:8px;'>{field['type']}</td></tr>"
+                html += f"<tr><td style='border:1px solid #ddd;padding:8px;'>{field.get('name')}</td><td style='border:1px solid #ddd;padding:8px;'>{field.get('type')}</td><td style='border:1px solid #ddd;padding:8px;'>{field.get('comment')}</td></tr>"
             html += "</table>"
             return format_html(html)
-        # 备用方案：使用关联的fields数据
-        fields = obj.fields.all()
-        if not fields:
-            return "无字段信息"
-        html = "<table style='width:100%;border-collapse:collapse;'>"
-        html += "<tr><th style='border:1px solid #ddd;padding:8px;text-align:left;'>字段名</th><th style='border:1px solid #ddd;padding:8px;text-align:left;'>类型</th></tr>"
-        for field in fields:
-            html += f"<tr><td style='border:1px solid #ddd;padding:8px;'>{field.name}</td><td style='border:1px solid #ddd;padding:8px;'>{field.type}</td></tr>"
-        html += "</table>"
-        return format_html(html)
+       
+        return "无字段信息"
     meta_data_format.allow_tags = True
     fieldsets = (
         ('基础信息', {

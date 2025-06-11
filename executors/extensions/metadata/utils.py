@@ -32,7 +32,8 @@ class DatabaseTableHandler:
             if task.partition_column != f['name'] and sync_time_column != f['name']:
                 target_columns.append({
                     'name': f['name'],
-                    'type': DataxTypes.convert_type(task.data_source.type,task.data_target.type,f['type'])
+                    'type': DataxTypes.convert_type(task.data_source.type,task.data_target.type,f['type']),
+                    'comment':f.get('comment','')
                 })
         # 同步字段
         
@@ -41,13 +42,12 @@ class DatabaseTableHandler:
         if task.data_target.type in ['starrocks']:
             # MySQL/StarRocks建表语句生成
             ddl.append(f"CREATE TABLE IF NOT EXISTS {task.target_db}.{task.target_table} (")
-            ddl.append(',\n'.join([f"  `{col['name']}` {col['type']}" for col in target_columns]))
-            
+            ddl.append(',\n'.join([f"  `{col['name']}` {col['type']} COMMENT '{col['comment']}'" for col in target_columns]))
             ddl.append(f') DISTRIBUTED BY HASH(`{target_columns[0].get("name")}`) BUCKETS 256 PROPERTIES ("replication_num" = "1","in_memory" = "false","storage_format" = "DEFAULT","enable_persistent_index" = "true","compression" = "LZ4");')
         elif task.data_target.type in ['mysql']:
             # MySQL/StarRocks建表语句生成
             ddl.append(f"CREATE TABLE IF NOT EXISTS {task.target_db}.{task.target_table} (")
-            ddl.append(',\n'.join([f"  `{col['name']}` {col['type']}" for col in target_columns]))
+            ddl.append(',\n'.join([f"  `{col['name']}` {col['type']} COMMENT '{col['comment']}'" for col in target_columns]))
             ddl.append(") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4")      
         elif task.data_target.type in  ['hive','hdfs']:
             if task.is_add_sync_time:
@@ -57,7 +57,7 @@ class DatabaseTableHandler:
                 })
             # Hive建表语句生成
             ddl.append(f"CREATE TABLE IF NOT EXISTS {task.target_db}.{task.target_table} (")
-            ddl.append(',\n'.join([f"  {col['name']} {col['type']}" for col in target_columns]))
+            ddl.append(',\n'.join([f"  {col['name']} {col['type']} COMMENT '{col['comment']}'" for col in target_columns]))
             
             # 添加分区字段
             if task.is_partition and task.partition_column:
@@ -212,23 +212,41 @@ class HiveUtil:
         # 切换数据库
         cursor.execute(f"USE {database_name}")
         # 获取表结构
-        cursor.execute(f"DESCRIBE {table_name}")
-        results = cursor.fetchall()
+        # cursor.execute(f"DESCRIBE {table_name}")
+        # results = cursor.fetchall()
         schema = []
-        seen_fields = set()  # 用于记录已出现的字段名，避免重复
-        for row in results:
-            field_name = row[0].strip() if row[0] else None
-            field_type = row[1].strip() if row[1] else None
-            # 过滤无效字段
-            if not field_name or '#' in field_name or not field_type:
-                continue
-            # 避免重复字段
-            if field_name not in seen_fields:
+        # seen_fields = set()  # 用于记录已出现的字段名，避免重复
+        # for row in results:
+        #     field_name = row[0].strip() if row[0] else None
+        #     field_type = row[1].strip() if row[1] else None
+        #     # 过滤无效字段
+        #     if not field_name or '#' in field_name or not field_type:
+        #         continue
+        #     # 避免重复字段
+        #     if field_name not in seen_fields:
+        #         schema.append({
+        #             'name': field_name,
+        #             'type': field_type
+        #         })
+        #         seen_fields.add(field_name)
+        # 通过show create table获取表结构
+        cursor.execute(f"SHOW CREATE TABLE {table_name}")
+        result = [i[0] for i in cursor.fetchall()]
+        if result:
+            pattern = r"`([^`]+)`\s+([^\s,]+)(?:\s+COMMENT\s+'([^']+)')?"
+            matches = re.finditer(pattern, ''.join(result))
+            schema = []
+            for match in matches:
+                field_name = match.group(1).strip()
+                field_type = match.group(2).strip()
+                field_comment = match.group(3).strip() if match.group(3) else ''
                 schema.append({
                     'name': field_name,
-                    'type': field_type
+                    'type': field_type,
+                    'comment': field_comment 
                 })
-                seen_fields.add(field_name)
+
+
         return schema
     
     # 添加某表分区
@@ -379,17 +397,33 @@ class MysqlUtil:
         # 切换数据库
         cursor.execute(f"USE {database_name}")
         # 获取表结构
-        cursor.execute(f"DESCRIBE {table_name}")
-        results = cursor.fetchall()
+        # cursor.execute(f"DESCRIBE {table_name}")
+        # results = cursor.fetchall()
         schema = []
-        # 返回
-        for row in results:
-            field_name = row[0].strip() if row[0] else None
-            field_type = row[1].strip() if row[1] else None
-            schema.append({
-                'name': field_name,
-                'type': field_type 
-            })
+        # # 返回
+        # for row in results:
+        #     field_name = row[0].strip() if row[0] else None
+        #     field_type = row[1].strip() if row[1] else None
+        #     schema.append({
+        #         'name': field_name,
+        #         'type': field_type 
+        #     })
+        # return schema
+        cursor.execute(f"SHOW CREATE TABLE {table_name}")
+        result = [i[0] for i in cursor.fetchall()]
+        if result:
+            pattern = r"`([^`]+)`\s+([^\s,]+)(?:\s+COMMENT\s+'([^']+)')?"
+            matches = re.finditer(pattern, ''.join(result))
+            schema = []
+            for match in matches:
+                field_name = match.group(1).strip()
+                field_type = match.group(2).strip()
+                field_comment = match.group(3).strip() if match.group(3) else ''
+                schema.append({
+                    'name': field_name,
+                    'type': field_type,
+                    'comment': field_comment 
+                })
         return schema
 
 
