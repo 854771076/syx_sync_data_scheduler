@@ -5,12 +5,8 @@ from .base.base import BaseAlert
 
 
 def AlertFactory(notification,*args,**kwargs):
-    from ..models import Log,Task,Notification,Project
-    if notification is None:
-        return BaseAlert(notification)
-    if notification.is_active == False:
-        return BaseAlert(notification)
-    if notification.engine == Notification.Engine.DINGTALK:
-        return ding_ding_robot(notification,*args)
-    else:
-        raise NotImplementedError(f"Alert type {notification.engine} not implemented")
+    subclasses = BaseAlert.__subclasses__()
+    # 查找匹配名称的子类
+    for cls in subclasses:
+        if cls.name == notification.engine:
+            return cls(notification,*args,**kwargs)

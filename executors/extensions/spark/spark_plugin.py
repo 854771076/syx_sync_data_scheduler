@@ -10,6 +10,7 @@ import threading
 import time
 from executors.alerts import AlertFactory
 import urllib
+from ..base import BasePlugin, BasePluginManager,settings
 class SparkReader:
     # 定义一个方法，选择对应的代码模板
     @staticmethod
@@ -173,7 +174,8 @@ class settings:
     max_worker = None
 
 
-class SparkPluginManager:
+class SparkPluginManager(BasePluginManager):
+    name="spark"
     def __init__(self, tasks, settings: settings = {}):
         from ...models import Task, ConfigItem, Log
         logger.debug(
@@ -295,7 +297,8 @@ class SparkPluginManager:
             task.generate_config()
 
 
-class SparkPlugin:
+class SparkPlugin(BasePlugin):
+    name="spark"
     def __init__(self, task, config, settings):
         logger.debug(
             f"[spark_plugin]:init SparkPlugin with task {task.id},config={config},settings={settings}"

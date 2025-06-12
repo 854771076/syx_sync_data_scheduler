@@ -161,7 +161,7 @@ def init_scheduler_task():
     scheduler.add_job(
         update_all_tasks_metadata,
         # 每天执行一次
-        trigger=CronTrigger.from_crontab('0 0,12 * * *'),
+        trigger=CronTrigger.from_crontab('0 21 * * *'),
         id='更新元数据', 
         replace_existing=True,
         misfire_grace_time=3600

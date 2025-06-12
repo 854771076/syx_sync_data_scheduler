@@ -13,7 +13,7 @@ from loguru import logger
 from executors.alerts.base.base import BaseAlert
 
 class ding_ding_robot(BaseAlert):
-
+    name="dingtalk"
     def __init__(self, notification = None,title=None):
         from ...models import Log,Task,Notification,Project,ConfigItem
         config=dict(ConfigItem.objects.all().values_list("key", "value"))

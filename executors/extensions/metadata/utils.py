@@ -33,27 +33,55 @@ class DatabaseTableHandler:
                 target_columns.append({
                     'name': f['name'],
                     'type': DataxTypes.convert_type(task.data_source.type,task.data_target.type,f['type']),
-                    'comment':f.get('comment','')
+                    'comment':f.get('comment',''),
+                    'key':f.get('Key',''),
+                    'default':f.get('Default',''),
+                    'extra':f.get('Extra',''),
+                    'null':f.get('Null','')
+
                 })
         # 同步字段
-        
         # 生成建表语句
         ddl = []
         if task.data_target.type in ['starrocks']:
-            # MySQL/StarRocks建表语句生成
             ddl.append(f"CREATE TABLE IF NOT EXISTS {task.target_db}.{task.target_table} (")
-            ddl.append(',\n'.join([f"  `{col['name']}` {col['type']} COMMENT '{col['comment']}'" for col in target_columns]))
+            column_defs = []
+            for col in target_columns:
+                col_def = f"  `{col['name']}` {col['type']}"
+                if col['null'].upper() == 'NO':
+                    col_def += " NOT NULL"
+                if col['default']:
+                    col_def += f" DEFAULT {col['default']}"
+                if col['extra']:
+                    col_def += f" {col['extra']}"
+                if col['comment']:
+                    col_def += f" COMMENT '{col['comment']}'"
+                column_defs.append(col_def)
+            ddl.append(',\n'.join(column_defs))
             ddl.append(f') DISTRIBUTED BY HASH(`{target_columns[0].get("name")}`) BUCKETS 256 PROPERTIES ("replication_num" = "1","in_memory" = "false","storage_format" = "DEFAULT","enable_persistent_index" = "true","compression" = "LZ4");')
+        
         elif task.data_target.type in ['mysql']:
-            # MySQL/StarRocks建表语句生成
             ddl.append(f"CREATE TABLE IF NOT EXISTS {task.target_db}.{task.target_table} (")
-            ddl.append(',\n'.join([f"  `{col['name']}` {col['type']} COMMENT '{col['comment']}'" for col in target_columns]))
-            ddl.append(") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4")      
+            column_defs = []
+            for col in target_columns:
+                col_def = f"  `{col['name']}` {col['type']}"
+                if col['null'].upper() == 'NO':
+                    col_def += " NOT NULL"
+                if col['default']:
+                    col_def += f" DEFAULT {col['default']}"
+                if col['extra']:
+                    col_def += f" {col['extra']}"
+                if col['comment']:
+                    col_def += f" COMMENT '{col['comment']}'"
+                column_defs.append(col_def)
+            ddl.append(',\n'.join(column_defs))
+            ddl.append(") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4")  
         elif task.data_target.type in  ['hive','hdfs']:
             if task.is_add_sync_time:
                 target_columns.append({
                     'name':task.sync_time_column,
-                    'type': DataxTypes.convert_type('hdfs',task.data_target.type,'timestamp')
+                    'type': DataxTypes.convert_type('hdfs',task.data_target.type,'timestamp'),
+                    'comment':f.get('comment','')
                 })
             # Hive建表语句生成
             ddl.append(f"CREATE TABLE IF NOT EXISTS {task.target_db}.{task.target_table} (")
@@ -212,40 +240,26 @@ class HiveUtil:
         # 切换数据库
         cursor.execute(f"USE {database_name}")
         # 获取表结构
-        # cursor.execute(f"DESCRIBE {table_name}")
-        # results = cursor.fetchall()
+        cursor.execute(f"DESCRIBE {table_name}")
+        results = cursor.fetchall()
         schema = []
-        # seen_fields = set()  # 用于记录已出现的字段名，避免重复
-        # for row in results:
-        #     field_name = row[0].strip() if row[0] else None
-        #     field_type = row[1].strip() if row[1] else None
-        #     # 过滤无效字段
-        #     if not field_name or '#' in field_name or not field_type:
-        #         continue
-        #     # 避免重复字段
-        #     if field_name not in seen_fields:
-        #         schema.append({
-        #             'name': field_name,
-        #             'type': field_type
-        #         })
-        #         seen_fields.add(field_name)
-        # 通过show create table获取表结构
-        cursor.execute(f"SHOW CREATE TABLE {table_name}")
-        result = [i[0] for i in cursor.fetchall()]
-        if result:
-            pattern = r"`([^`]+)`\s+([^\s,]+)(?:\s+COMMENT\s+'([^']+)')?"
-            matches = re.finditer(pattern, ''.join(result))
-            schema = []
-            for match in matches:
-                field_name = match.group(1).strip()
-                field_type = match.group(2).strip()
-                field_comment = match.group(3).strip() if match.group(3) else ''
+        seen_fields = set()  # 用于记录已出现的字段名，避免重复
+        for row in results:
+            field_name = row[0].strip() if row[0] else None
+            field_type = row[1].strip() if row[1] else None
+            comment=row[2].strip() if row[2] else ''
+
+            # 过滤无效字段
+            if not field_name or '#' in field_name or not field_type:
+                continue
+            # 避免重复字段
+            if field_name not in seen_fields:
+                seen_fields.add(field_name)
                 schema.append({
                     'name': field_name,
                     'type': field_type,
-                    'comment': field_comment 
+                    'comment':comment 
                 })
-
 
         return schema
     
@@ -393,38 +407,29 @@ class MysqlUtil:
     # 获取表结构
     @staticmethod
     def get_table_schema(mysql_client, database_name, table_name):
-        cursor = mysql_client.cursor()
+        cursor = mysql_client.cursor(pymysql.cursors.DictCursor)
         # 切换数据库
         cursor.execute(f"USE {database_name}")
         # 获取表结构
-        # cursor.execute(f"DESCRIBE {table_name}")
-        # results = cursor.fetchall()
-        schema = []
-        # # 返回
-        # for row in results:
-        #     field_name = row[0].strip() if row[0] else None
-        #     field_type = row[1].strip() if row[1] else None
-        #     schema.append({
-        #         'name': field_name,
-        #         'type': field_type 
-        #     })
-        # return schema
+        cursor.execute(f"DESCRIBE {table_name}")
+        results = list(cursor.fetchall())
+        for i in results:
+            i['name']=i['Field']
+            i['type']=i['Type']
         cursor.execute(f"SHOW CREATE TABLE {table_name}")
-        result = [i[0] for i in cursor.fetchall()]
-        if result:
-            pattern = r"`([^`]+)`\s+([^\s,]+)(?:\s+COMMENT\s+'([^']+)')?"
-            matches = re.finditer(pattern, ''.join(result))
-            schema = []
+        ddl=cursor.fetchone().get('Create Table')
+        if ddl:
+            pattern = r"^\s*`(.+)`\s+([^\s,]+)\s*(?:[^,]*?COMMENT\s+\'(.*)\')?"
+            matches = re.finditer(pattern,ddl, re.MULTILINE)
             for match in matches:
                 field_name = match.group(1).strip()
                 field_type = match.group(2).strip()
                 field_comment = match.group(3).strip() if match.group(3) else ''
-                schema.append({
-                    'name': field_name,
-                    'type': field_type,
-                    'comment': field_comment 
-                })
-        return schema
+                for result in results:
+                    if field_name  in result.get('Field'):
+                        result['comment']=field_comment
+                        break
+        return results
 
 
         

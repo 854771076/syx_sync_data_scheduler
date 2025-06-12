@@ -5,6 +5,7 @@ from typing import Union, List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, date
 import os,time
+from ..base import BasePlugin, BasePluginManager,settings
 from ..metadata.utils import (
     DatabaseTableHandler,
     HiveUtil,
@@ -15,18 +16,11 @@ from ..metadata.utils import (
 )
 from loguru import logger
 from executors.alerts import AlertFactory
-
-
-class settings:
-    execute_way = None
-    start_time = None
-    end_time = None
-    partition_date = None
-    max_worker = None
 import threading
 lock=threading.Lock()
 
-class DataXPluginManager:
+class DataXPluginManager(BasePluginManager):
+    name="datax"
     def __init__(self, tasks, settings: settings = {}):
         from ...models import Task, ConfigItem, Log
 
@@ -148,7 +142,8 @@ class DataXPluginManager:
             task.generate_config()
 
 
-class DataXPlugin:
+class DataXPlugin(BasePlugin):
+    name="datax"
     def __init__(self, task, config, settings):
         logger.debug(
             f"[datax_plugin]:init DataXPlugin with task {task.id},config={config},settings={settings}"
@@ -656,11 +651,15 @@ class Reader:
         # 排除配置不需要的字段
         columns_target = self._exclude_column(columns_target)
         # 转小写
+        def lower(x):
+            if isinstance(x, str):
+                return x.lower().replace('`','')
+            return x
         columns_target = [
-            {k.lower().replace('`',''): v.lower().replace('`','') for k, v in i.items()} for i in columns_target
+            {lower(k): lower(v) for k, v in i.items()} for i in columns_target
         ]
         columns_source = [
-            {k.lower().replace('`',''): v.lower().replace('`','') for k, v in i.items()} for i in columns_source
+            {lower(k): lower(v) for k, v in i.items()} for i in columns_source
         ]
         # 遍历columns_source,如果columns_source中的列在columns_target中不存在，则将其添加到target_not_exist中
         for column in columns_source:
@@ -747,6 +746,7 @@ class Reader:
             source_not_exist_format = DataxTypes.format_reader_schema(source_not_exist)
             target_not_exist_format = DataxTypes.format_reader_schema(target_not_exist)
             msg = f"### 字段监控通知 \n"
+            msg += f"#### 项目名称: {self.task.project.name} \n"
             msg += f"#### 任务名称: {self.task.name} \n"
             msg += f"#### 任务ID: {self.task.id} \n"
             msg += f"#### 任务描述: {self.task.description} \n"
