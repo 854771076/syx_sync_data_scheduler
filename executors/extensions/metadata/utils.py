@@ -10,7 +10,7 @@ import subprocess
 from threading import Thread,Lock
 # from django.utils import timezone
 from datetime import datetime,timedelta
-
+from .base_util import BaseDBUtil
 
 
 
@@ -205,10 +205,10 @@ class DatabaseTableHandler:
         return tables 
 
 # Hive工具类
-class HiveUtil:    
-    # 通过全局配置获取hive连接
+class HiveUtil(BaseDBUtil):    
+    name = "hive|hdfs"
     @staticmethod
-    def get_hive_client_by_config(config,datasource):
+    def get_client(config,datasource):
         if config.get("ENV")=="dev":
             hive_host_defualt=config.get("HIVE_HOST_DEV")
             hive_port_defualt=int(config.get("HIVE_PORT_DEV",10000))
@@ -235,8 +235,8 @@ class HiveUtil:
     
     # 获取表结构
     @staticmethod
-    def get_table_schema(hive_client, database_name, table_name):
-        cursor = hive_client.cursor()
+    def get_table_schema( client, database_name, table_name):
+        cursor = client.cursor()
         # 切换数据库
         cursor.execute(f"USE {database_name}")
         # 获取表结构
@@ -305,33 +305,42 @@ class HiveUtil:
         else:
             logger.debug(f"Table {table_name} does not exist in database {database_name}")
             return False
+
+
 def get_conn_by_config(config,data_source):
-    from executors.models import DataSource
-    db_type=data_source.type
-    if db_type =='mysql' or db_type =='starrocks':
-        mysql_conn=MysqlUtil.get_mysql_client_by_config(data_source)
-        return mysql_conn
-    elif db_type == 'hive' or db_type == 'hdfs':
-        hive_conn=HiveUtil.get_hive_client_by_config(config,data_source)
-        return hive_conn
-    else:
-        raise ValueError(f"不支持的数据库类型: {db_type}")
+    DB_UTILS = { }
+    for util in BaseDBUtil.__subclasses__():
+        keys = util.name.split('|')
+        for key in keys:
+            DB_UTILS[key] = util
+    if not DB_UTILS:
+        raise ValueError("No database utility classes found.")
+    db_type = data_source.type.lower()
+    util_class = DB_UTILS.get(db_type)
+    if util_class:
+        return util_class.get_client(config, data_source)
+    raise ValueError(f"Unsupported database type: {db_type}")
 def get_table_schema_by_config(config,data_source,db_name,table_name,tables=[]):
-    from executors.models import DataSource
-    db_type=data_source.type
+    DB_UTILS = { }
+    for util in BaseDBUtil.__subclasses__():
+        keys = util.name.split('|')
+        for key in keys:
+            DB_UTILS[key] = util
+    if not DB_UTILS:
+        raise ValueError("No database utility classes found.")
+    db_type = data_source.type.lower()
+    util_class = DB_UTILS.get(db_type)
+    if not util_class:
+        raise ValueError(f"Unsupported database type: {db_type}")
+    
+    conn = get_conn_by_config(config, data_source)
     if tables:
-        source_db,source_table=tables[0].split(".")
+        source_db, source_table = tables[0].split(".")
     else:
-        source_db,source_table=db_name,table_name
-    conn=get_conn_by_config(config,data_source)
-    if db_type =='mysql' or db_type =='starrocks':
-        columns = MysqlUtil.get_table_schema(conn,source_db,source_table)
-        return columns
-    elif db_type == 'hive' or db_type == 'hdfs':
-        columns = HiveUtil.get_table_schema(conn,source_db,source_table)
-        return columns
-    else:
-        raise ValueError(f"不支持的数据库类型: {db_type}")
+        source_db, source_table = db_name, table_name
+    
+    return util_class.get_table_schema(conn, source_db, source_table)
+
 def _sync_single_metadata(data_source, db_name:str, table_name:str,config,tables=[]):
     from executors.models import MetadataTable
     """缓存表字段"""
@@ -392,9 +401,10 @@ class HdfsUtil:
             return False
 
 # Mysql工具类
-class MysqlUtil:
+class MysqlUtil(BaseDBUtil):
+    name = "mysql|starrocks"
     @staticmethod
-    def get_mysql_client_by_config(datasource):
+    def get_client(config,datasource):
         mysql_host=datasource.connection.host
         mysql_port=datasource.connection.port
         mysql_user=datasource.connection.username
@@ -406,8 +416,8 @@ class MysqlUtil:
 
     # 获取表结构
     @staticmethod
-    def get_table_schema(mysql_client, database_name, table_name):
-        cursor = mysql_client.cursor(pymysql.cursors.DictCursor)
+    def get_table_schema(client, database_name, table_name):
+        cursor = client.cursor(pymysql.cursors.DictCursor)
         # 切换数据库
         cursor.execute(f"USE {database_name}")
         # 获取表结构

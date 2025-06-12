@@ -739,9 +739,14 @@ class Reader:
         source_columns_format = DataxTypes.format_reader_schema(self.source_columns)
         # 如果source_not_exist和target_not_exist 不为空，则发送警告日志
         if source_not_exist or target_not_exist:
-            logger.warning(
-                f"[字段监控通知]:task {self.task.id} source table {self.task.source_table} not exist columns {source_not_exist}"
-            )
+            if source_not_exist:
+                logger.warning(
+                    f"[字段监控通知]:task {self.task.id} source table {self.task.source_table} not exist columns {source_not_exist}"
+                )
+            if target_not_exist:
+                logger.warning(
+                    f"[字段监控通知]:task {self.task.id} target table {self.task.target_table} not exist columns {target_not_exist}" 
+                )
             # 优化通知，汉语，markdown排版
             source_not_exist_format = DataxTypes.format_reader_schema(source_not_exist)
             target_not_exist_format = DataxTypes.format_reader_schema(target_not_exist)
