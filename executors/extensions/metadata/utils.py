@@ -47,13 +47,15 @@ class DatabaseTableHandler:
             ddl.append(f"CREATE TABLE IF NOT EXISTS {task.target_db}.{task.target_table} (")
             column_defs = []
             for col in target_columns:
+                if 'string' in col['type']:
+                    col['type']='varchar(1048576)'
                 col_def = f"  `{col['name']}` {col['type']}"
                 if col['null'].upper() == 'NO':
                     col_def += " NOT NULL"
                 if col['default']:
                     col_def += f" DEFAULT {col['default']}"
-                if col['extra']:
-                    col_def += f" {col['extra']}"
+                # if col['extra']:
+                #     col_def += f" {col['extra']}"
                 if col['comment']:
                     col_def += f" COMMENT '{col['comment']}'"
                 column_defs.append(col_def)
@@ -69,8 +71,8 @@ class DatabaseTableHandler:
                     col_def += " NOT NULL"
                 if col['default']:
                     col_def += f" DEFAULT {col['default']}"
-                if col['extra']:
-                    col_def += f" {col['extra']}"
+                # if col['extra']:
+                #     col_def += f" {col['extra']}"
                 if col['comment']:
                     col_def += f" COMMENT '{col['comment']}'"
                 column_defs.append(col_def)

@@ -236,18 +236,28 @@ class DataXPlugin(BasePlugin):
             # 读取任务中的json
             config = self.task.datax_json
             # 替换配置中的变量
+            today=self.settings.get("today")
+            if not today:
+                today=''
+            else:
+                today=today.strftime("%Y-%m-%d")
+            yesterday=self.settings.get("yesterday")
+            if not yesterday:
+                yesterday=''
+            else:
+                yesterday=yesterday.strftime("%Y-%m-%d")
             config = json.loads(
                 json.dumps(config)
                 .replace("${source_db}", self.task.source_db)
                 .replace("${source_table}", self.task.source_table)
                 .replace("${target_db}", self.task.target_db)
                 .replace("${target_table}", self.task.target_table)
-                .replace("${partition_date}", self.settings.get("partition_date"),"")
-                .replace("${today}", self.settings.get("today").strftime("%Y-%m-%d"),"")
-                .replace("${yesterday}", self.settings.get("yesterday").strftime("%Y-%m-%d"),"")
-                .replace("${start_time}", self.settings.get("start_time"),"")
-                .replace("${end_time}", self.settings.get("end_time"),"")
-                .replace("${execute_way}", self.settings.get("execute_way"),"")
+                .replace("${partition_date}", self.settings.get("partition_date",""))
+                .replace("${today}", today)
+                .replace("${yesterday}", yesterday)
+                .replace("${start_time}", self.settings.get("start_time",""))
+                .replace("${end_time}", self.settings.get("end_time",""))
+                .replace("${execute_way}", self.settings.get("execute_way",""))
             )
         
         config_path = self.output_dir / f"{self.task.id}.json"
@@ -310,7 +320,7 @@ class DataXPlugin(BasePlugin):
         """预执行"""
         if self.task.is_partition and self.target.type in ["hive","hdfs"] :
             with lock:
-                hive=HiveUtil.get_hive_client_by_config(self.config,self.target)
+                hive=HiveUtil.get_client(self.config,self.target)
                 HiveUtil.add_partition(
                     hive,
                     self.task.target_db,
@@ -387,6 +397,8 @@ class DataXPlugin(BasePlugin):
                             return False
                     logger.info(f"[datax_plugin]:task {cls.task.id} 依赖未执行，等待中")
                     time.sleep(60)
+                cls.generate_config()
+            if cls.task.is_custom_script:
                 cls.generate_config()
             cls.pre_execute()
             
@@ -954,7 +966,7 @@ class Writer:
             "parameter": {
                 "username": self.target.connection.username,
                 "password": self.target.connection.password,
-                "column": [i["name"] for i in self.target_columns],
+                "column": [f'`{i["name"]}`' for i in self.target_columns],
                 "writeMode": self.mode,
                 "preSql": pre_execute_sql,
                 "session": session_variable,
@@ -1017,7 +1029,7 @@ class Writer:
                 "loadUrl": loadUrl,
                 "username": self.target.connection.username,
                 "password": self.target.connection.password,
-                "column": [i["name"] for i in self.target_columns],
+                "column": [f'`{i["name"]}`' for i in self.target_columns],
                 "writeMode": self.mode,
                 "preSql": pre_execute_sql,
                 "connection": [

@@ -246,7 +246,7 @@ class Task(models.Model):
     config = models.JSONField(verbose_name='启动参数配置,{"jvm_options": "-Xms5g -Xmx10g","session":[],"preSql":[],"compress":"NONE","fieldDelimiter":"\\u0001","fileType":"text"或"orc","SPARK_CONF":"--driver-memory  4G  --executor-memory 10G   --num-executors 5 --executor-cores 2"}', default=dict, null=True, blank=True)
     datax_json=models.JSONField(verbose_name="最新DataX任务JSON",default=dict,null=True,blank=True)
     spark_code=models.TextField(verbose_name="最新Spark任务代码",default="",null=True,blank=True)
-    is_custom_script=models.BooleanField(default=False, verbose_name="是否自定义脚本(启用则不会再生成脚本)")
+    is_custom_script=models.BooleanField(default=False, verbose_name="是否自定义脚本(启用则不会再生成脚本)",help_text='''占位符有：${source_db}\n${source_table}\n${target_db}\n${target_table}\n${partition_date}\n${today}\n${yesterday}\n${start_time}\n${end_time}\n${execute_way}''')
     # 脚本日志依赖
     task_log_dependency = models.ForeignKey(TaskLogDependency, on_delete=models.SET_NULL, verbose_name="脚本日志依赖", null=True, blank=True,
         db_constraint=False)
