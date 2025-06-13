@@ -32,9 +32,9 @@ class LogInline(admin.StackedInline):
 
 @admin.register(Project)
 class ProjectAdmin(admin.ModelAdmin):
-    list_display = ('id','name','is_active','tenant', 'description','engine','config', 'created_at','updated_at')
+    list_display = ('id','custom_width_column','is_active','tenant', 'description','engine','config', 'created_at','updated_at')
     search_fields = ('name',)
-    list_display_links = ('id','name')
+    list_display_links = ('id','custom_width_column')
     list_filter = ('engine', 'is_active', 'tenant')
     # inlines = [TaskInline]
     ordering = ('-created_at','-updated_at')
@@ -66,6 +66,13 @@ class ProjectAdmin(admin.ModelAdmin):
             path('configure/', self.admin_site.admin_view(project_configure_view), name='project_configure')
         ]
         return custom_urls + urls
+    @admin.display(description='项目名称')
+    def custom_width_column(self, obj):
+        # 固定宽度300px的列
+        return format_html(
+            '<div style="width:250px;overflow:hidden;text-overflow:ellipsis">{}</div>',
+            obj.name
+        )
 @admin.register(DataSource)
 class DataSourceAdmin(admin.ModelAdmin):
     list_display = ('id','name', 'type', 'description_short','username', 'type', 'created_at')

@@ -592,8 +592,13 @@ class DataXPlugin(BasePlugin):
             new_columns.append(column)
         return new_columns
 
-
+def _get_columns_index(columns:List[Dict[str,Any]]):
+    """获取列索引"""
+    for i, column in enumerate(columns):
+        column['index']=i
+    return columns
 class Reader:
+    
     @staticmethod
     def get_columns(self: DataXPlugin):
         from ...models import MetadataTable, _sync_single_metadata
@@ -623,10 +628,10 @@ class Reader:
                     data_source=self.task.data_source
                 )
 
-            columns_source = Metadata_source.meta_data
+            columns_source = _get_columns_index(Metadata_source.meta_data)
             columns_source = self._exclude_column(columns_source)
         else:
-            columns_source = self._exclude_column(self.task.columns)
+            columns_source = self._exclude_column(_get_columns_index(self.task.columns))
 
         # 映射配置的字段
         if self.task.reader_transform_columns:
@@ -725,12 +730,12 @@ class Reader:
                     {
                         "name": column["name"],
                         "type": target_format_column,
-                        "value": column.get('value'),
+                        # "value": column.get('value'),
                     }
                 )
                 self.source_columns.append(
                     {
-                        "index":columns_source.index(source_column),
+                        "index":source_column.get('index'),
                         "name": column["name"],
                         "type": datax_type,
                         "value": source_column.get('value'),

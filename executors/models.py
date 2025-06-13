@@ -54,7 +54,9 @@ class Project(models.Model):
     name = models.CharField(max_length=255, verbose_name="项目名称", db_index=True)
     description = models.TextField(verbose_name="项目描述")
     engine = models.CharField(max_length=255, verbose_name="项目引擎", choices=Engine.choices,default=Engine.DATAX)
-    config=models.JSONField(verbose_name='项目配置,{"cron": "05 00 * * *", "max_worker": 10, "DATAX_JVM_OPTIONS": "-Xms1g -Xmx2g","SPARK_CONF":"--driver-memory  4G  --executor-memory 10G   --num-executors 5 --executor-cores 2"',default=dict,null=True,blank=True)
+    config=models.JSONField(verbose_name='项目配置',
+                            help_text='<div style="font-size:13px;"><span style="display:block;">样例：datax：{"cron": "05 00 * * *", "max_worker": 10, "DATAX_JVM_OPTIONS": "-Xms1g -Xmx2g"}</span><span style="display:block;margin-left:39px;">spark：{"cron": "05 00 * * *", "max_worker": 10,"SPARK_CONF":"--driver-memory  4G  --executor-memory 10G   --num-executors 5 --executor-cores 2"}</span></div>',
+                            default=dict,null=True,blank=True)
     # 租户
     tenant = models.ForeignKey(Tenant, on_delete=models.SET_DEFAULT, verbose_name="关联租户",default=1,null=True,blank=True)
     # 通知配置
@@ -226,7 +228,7 @@ class Task(models.Model):
     source_table = models.CharField(max_length=255, verbose_name="源表名称")
     target_db = models.CharField(max_length=255, verbose_name="目标数据库名称")
     target_table = models.CharField(max_length=255, verbose_name="目标表名称")
-    is_delete = models.BooleanField(default=False, verbose_name="是否删除(注：配置了删除后，导入hdfs时，配置了分区表则会覆盖分区目录，非分区表则覆盖整个表目录，导入mysql或者starrocks时，如果未配置更新字段则默认会删除整个表数据再写入，配置了更新字段则会根据更新字段删除分区时间数据)")
+    is_delete = models.BooleanField(default=False, verbose_name="是否删除",help_text="注：配置了删除后，导入hdfs时，配置了分区表则会覆盖分区目录，非分区表则覆盖整个表目录，导入mysql或者starrocks时，如果未配置更新字段则默认会删除整个表数据再写入，配置了更新字段则会根据更新字段删除分区时间数据")
     split_config = models.ForeignKey(SplitConfig, on_delete=models.SET_NULL, verbose_name="分库分表配置", null=True, blank=True)
     # column_config = models.ForeignKey(ColumnConfig, on_delete=models.SET_NULL, verbose_name="字段配置", null=True, blank=True)
     partition_column = models.CharField(max_length=255, null=True, blank=True, verbose_name="分区字段", default="partition_date")

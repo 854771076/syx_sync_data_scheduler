@@ -129,6 +129,17 @@ def backup_data():
     except Exception as e:
         logger.exception(e)
 
+#删除七天前所有成功的日志
+def delete_old_logs():
+    try:
+        # 计算7天前的日期
+        seven_days_ago = datetime.now() - timedelta(days=7)
+        # 删除7天前的成功日志
+        Log.objects.filter(complit_state=1, created_at__lt=seven_days_ago).delete()
+        logger.info('Old logs deleted successfully.')
+    except Exception as e:
+        logger.exception(e)
+
 
 def init_scheduler_task():
     project=Project.objects.filter(is_active=True)
@@ -150,6 +161,7 @@ def init_scheduler_task():
             misfire_grace_time=3600  # 允许3600秒的容错时间
         )
         logger.info(f"DataX scheduler started successfully for project {p.name}")
+
     # 检查日志
     scheduler.add_job(
         check_logs,
@@ -163,6 +175,14 @@ def init_scheduler_task():
         # 每天执行一次
         trigger=CronTrigger.from_crontab('0 21 * * *'),
         id='更新元数据', 
+        replace_existing=True,
+        misfire_grace_time=3600
+    )
+    scheduler.add_job(
+        delete_old_logs,
+        # 每天执行一次
+        trigger=CronTrigger.from_crontab('0 22 * * *'),
+        id='删除七天前成功的日志', 
         replace_existing=True,
         misfire_grace_time=3600
     )
