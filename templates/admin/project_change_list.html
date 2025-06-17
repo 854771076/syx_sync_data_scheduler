@@ -1,0 +1,20 @@
+{% extends "admin/change_list.html" %}
+{% block title %}批量导入项目数据{% endblock %}
+{% block object-tools %}
+  {{ block.super }}
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      var actions = document.querySelector('.actions');
+      if(actions) {
+        var importLink = document.createElement('button');
+        importLink.className = "el-button el-button--primary el-button--small";
+        importLink.innerHTML = '<i class="fas fa-file-import"></i> <span>导入CSV</span>';
+        importLink.onclick = function() {
+          window.open("{{ import_csv_url }}", "_blank");
+        };
+        actions.insertBefore(importLink, actions.firstChild);
+      }
+    });
+  </script>
+{% endblock %}

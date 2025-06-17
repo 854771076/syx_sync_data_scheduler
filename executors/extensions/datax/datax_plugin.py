@@ -252,12 +252,12 @@ class DataXPlugin(BasePlugin):
                 .replace("${source_table}", self.task.source_table)
                 .replace("${target_db}", self.task.target_db)
                 .replace("${target_table}", self.task.target_table)
-                .replace("${partition_date}", self.settings.get("partition_date",""))
+                .replace("${partition_date}",self.settings.get("partition_date") if self.settings.get("partition_date") else '')
                 .replace("${today}", today)
                 .replace("${yesterday}", yesterday)
-                .replace("${start_time}", self.settings.get("start_time",""))
-                .replace("${end_time}", self.settings.get("end_time",""))
-                .replace("${execute_way}", self.settings.get("execute_way",""))
+                .replace("${start_time}", self.settings.get("start_time") if self.settings.get("start_time") else '')
+                .replace("${end_time}",self.settings.get("end_time") if  self.settings.get("end_time") else '')
+                .replace("${execute_way}",self.settings.get("execute_way") if  self.settings.get("execute_way") else '')
             )
         
         config_path = self.output_dir / f"{self.task.id}.json"

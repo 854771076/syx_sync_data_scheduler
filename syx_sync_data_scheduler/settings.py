@@ -117,7 +117,7 @@ SIMPLEUI_HOME_TITLE = '同步日志统计'
 
 SIMPLEUI_HOME_INFO = False
 SIMPLEUI_ANALYSIS=True
-
+SIMPLEUI_LOGO='/static/loginLogo.png'
 SIMPLEUI_DEFAULT_THEME = 'element.css'
 SIMPLEUI_CONFIG = {
       # 是否使用系统默认菜单，自定义菜单时建议关闭。

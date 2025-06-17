@@ -136,6 +136,7 @@ def delete_old_logs():
         seven_days_ago = datetime.now() - timedelta(days=7)
         # 删除7天前的成功日志
         Log.objects.filter(complit_state=1, created_at__lt=seven_days_ago).delete()
+        
         logger.info('Old logs deleted successfully.')
     except Exception as e:
         logger.exception(e)
@@ -176,7 +177,7 @@ def init_scheduler_task():
         trigger=CronTrigger.from_crontab('0 21 * * *'),
         id='更新元数据', 
         replace_existing=True,
-        misfire_grace_time=3600
+        misfire_grace_time=3600*12
     )
     scheduler.add_job(
         delete_old_logs,

@@ -5,6 +5,9 @@ from django.contrib import admin
 from .actions import *
 from django.http import HttpResponse
 from django.utils.html import format_html
+import csv
+from django.db.models.fields.related import ForeignKey
+from io import TextIOWrapper
 import os
 import signal
 admin.site.site_header = '大数据调度管理后台'  # 设置header
@@ -60,12 +63,87 @@ class ProjectAdmin(admin.ModelAdmin):
             )
         }) 
     )
+    def export_as_csv(self, request, queryset):
+        meta = self.model._meta
+        field_names = [field.name for field in meta.fields]
+        
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = f'attachment; filename={meta}.csv'
+        
+        writer = csv.writer(response)
+        writer.writerow(field_names)
+        for obj in queryset:
+            row = []
+            for field in meta.fields:
+                value = getattr(obj, field.name)
+                if field.is_relation and not field.many_to_many:
+                    # 处理外键关系，导出关联对象的ID
+                    value = value.id if value else ''
+                row.append(str(value))
+            writer.writerow(row)
+        return response
+    export_as_csv.short_description = "导出选中项目为CSV"
+    
+    def import_csv(self, request):
+        if request.method == "POST":
+            csv_file = request.FILES['csv_file']
+            if not csv_file.name.endswith('.csv'):
+                messages.error(request, '请上传CSV文件')
+                return
+            
+            encodings = ['utf-8', 'cp1252', 'gbk']  # 尝试的编码列表
+            success = False
+            
+            for encoding in encodings:
+                try:
+                    file_content = csv_file.read().decode(encoding)
+                    reader = csv.DictReader(file_content.splitlines())
+                    
+                    imported_count = 0
+                    for row in reader:
+                        # 处理外键关系
+                        for field in self.model._meta.fields:
+                            if isinstance(field, ForeignKey) and field.name in row and row[field.name]:
+                                related_model = field.related_model
+                                try:
+                                    row[field.name] = related_model.objects.get(id=row[field.name])
+                                except (related_model.DoesNotExist, ValueError):
+                                    row[field.name] = None
+                        
+                        # 如果row中有id字段则更新，否则创建新记录
+                        if row.get('id'):
+                            self.model.objects.update_or_create(
+                                id=row['id'],
+                                defaults=row
+                            )
+                        else:
+                            self.model.objects.create(**row)
+                        imported_count += 1
+                    
+                    messages.success(request, f'成功导入 {imported_count} 条数据')
+                    success = True
+                    break
+                    
+                except UnicodeDecodeError:
+                    continue  # 尝试下一种编码
+                except Exception as e:
+                    messages.error(request, f'导入失败(编码:{encoding}): {str(e)}')
+                    break
+            
+            if not success:
+                messages.error(request, '无法解析CSV文件，请检查文件编码或格式')
+        
+        return render(request, 'admin/csv_import.html')
+    import_csv.short_description = "导入CSV数据"
     def get_urls(self):
         urls = super().get_urls()
         custom_urls = [
-            path('configure/', self.admin_site.admin_view(project_configure_view), name='project_configure')
+            path('configure/', self.admin_site.admin_view(project_configure_view), name='project_configure'),
+            path('import_csv/', self.admin_site.admin_view(self.import_csv), name='import_project_csv'),
         ]
         return custom_urls + urls
+    
+    actions = [export_as_csv]  + [copy_data,init_scheduler,execute_project_datax_tasks,enable,disable]
     @admin.display(description='项目名称')
     def custom_width_column(self, obj):
         # 固定宽度300px的列
@@ -73,6 +151,12 @@ class ProjectAdmin(admin.ModelAdmin):
             '<div style="width:250px;overflow:hidden;text-overflow:ellipsis">{}</div>',
             obj.name
         )
+    change_list_template = 'admin/project_change_list.html'
+    
+    def changelist_view(self, request, extra_context=None):
+        extra_context = extra_context or {}
+        extra_context['import_csv_url'] = reverse('admin:import_project_csv')
+        return super().changelist_view(request, extra_context=extra_context)
 @admin.register(DataSource)
 class DataSourceAdmin(admin.ModelAdmin):
     list_display = ('id','name', 'type', 'description_short','username', 'type', 'created_at')
@@ -196,12 +280,92 @@ class TaskAdmin(admin.ModelAdmin):
     @admin.display(description='路径')
     def lineage_path(self, obj):
         return f'{obj.source_db}.{obj.source_table} → {obj.target_db}.{obj.target_table}'
+    def export_as_csv(self, request, queryset):
+        meta = self.model._meta
+        field_names = [field.name for field in meta.fields]
+        
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = f'attachment; filename={meta}.csv'
+        
+        writer = csv.writer(response)
+        writer.writerow(field_names)
+        for obj in queryset:
+            row = []
+            for field in meta.fields:
+                value = getattr(obj, field.name)
+                if field.is_relation and not field.many_to_many:
+                    # 处理外键关系，导出关联对象的ID
+                    value = value.id if value else ''
+                row.append(str(value))
+            writer.writerow(row)
+        return response
+    export_as_csv.short_description = "导出选中项目为CSV"
+    change_list_template = 'admin/task_change_list.html'
+    
+    def changelist_view(self, request, extra_context=None):
+        extra_context = extra_context or {}
+        extra_context['import_csv_url'] = reverse('admin:import_task_csv')
+        return super().changelist_view(request, extra_context=extra_context)
+    def import_csv(self, request):
+        if request.method == "POST":
+            csv_file = request.FILES['csv_file']
+            if not csv_file.name.endswith('.csv'):
+                messages.error(request, '请上传CSV文件')
+                return
+            
+            encodings = ['utf-8', 'gbk']  # 尝试的编码列表
+            success = False
+            
+            for encoding in encodings:
+                try:
+                    file_content = csv_file.read().decode(encoding)
+                    reader = csv.DictReader(file_content.splitlines())
+                    
+                    imported_count = 0
+                    for row in reader:
+                        # 处理外键关系
+                        for field in self.model._meta.fields:
+                            if isinstance(field, ForeignKey) and field.name in row and row[field.name]:
+                                related_model = field.related_model
+                                try:
+                                    row[field.name] = related_model.objects.get(id=row[field.name])
+                                except (related_model.DoesNotExist, ValueError):
+                                    row[field.name] = None
+                        
+                        # 如果row中有id字段则更新，否则创建新记录
+                        if row.get('id'):
+                            self.model.objects.update_or_create(
+                                id=row['id'],
+                                defaults=row
+                            )
+                        else:
+                            self.model.objects.create(**row)
+                        imported_count += 1
+                    
+                    messages.success(request, f'成功导入 {imported_count} 条数据')
+                    success = True
+                    break
+                    
+                except UnicodeDecodeError:
+                    continue  # 尝试下一种编码
+                except Exception as e:
+                    messages.error(request, f'导入失败(编码:{encoding}): {str(e)}')
+                    break
+            
+            if not success:
+                messages.error(request, '无法解析CSV文件，请检查文件编码或格式')
+        
+        return render(request, 'admin/csv_import.html')
+    import_csv.short_description = "导入CSV数据"
     def get_urls(self):
         urls = super().get_urls()
         custom_urls = [
-            path('configure/', self.admin_site.admin_view(task_configure_view), name='datax_configure')
+            path('configure/', self.admin_site.admin_view(task_configure_view), name='datax_configure'),
+            path('import_csv/', self.admin_site.admin_view(self.import_csv), name='import_task_csv'),
         ]
         return custom_urls + urls
+    
+    actions = [export_as_csv] + [copy_data,execute_datax_tasks_generate_config_update,execute_datax_tasks_generate_config_all,execute_datax_tasks_execute_json,execute_datax_tasks,enable,disable,create_table,clear_cache_columns]
 
 @admin.register(Log)
 class LogAdmin(admin.ModelAdmin):

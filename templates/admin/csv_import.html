@@ -1,0 +1,78 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static %}
+
+{% block extrastyle %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'admin/css/forms.css' %}">
+  <style>
+    .csv-import-container {
+      max-width: 800px;
+      margin: 20px auto;
+      padding: 20px;
+      background: #fff;
+      border-radius: 4px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    .csv-import-title {
+      color: #333;
+      margin-bottom: 20px;
+      font-size: 18px;
+      font-weight: bold;
+      border-bottom: 1px solid #eee;
+      padding-bottom: 10px;
+    }
+    .csv-import-form {
+      margin-top: 20px;
+    }
+    .csv-import-form .file-input {
+      margin-bottom: 20px;
+    }
+    .csv-import-form .submit-button {
+      background: #4CAF50;
+      color: white;
+      padding: 10px 15px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .csv-import-form .submit-button:hover {
+      background: #45a049;
+    }
+    .csv-import-help {
+      margin-top: 20px;
+      color: #666;
+      font-size: 13px;
+    }
+  </style>
+{% endblock %}
+
+{% block content %}
+<div class="csv-import-container">
+  <h1 class="csv-import-title">
+    <i class="fas fa-file-import"></i> 导入CSV数据
+  </h1>
+  
+  <div class="csv-import-form">
+    <form method="post" enctype="multipart/form-data">
+      {% csrf_token %}
+      <div class="file-input">
+        <label for="csv_file">选择CSV文件:</label>
+        <input type="file" name="csv_file" accept=".csv" required>
+      </div>
+      <button type="submit" class="submit-button">
+        <i class="fas fa-upload"></i> 开始导入
+      </button>
+    </form>
+  </div>
+  
+  <div class="csv-import-help">
+    <p><strong>使用说明:</strong></p>
+    <ul>
+      <li>请确保CSV文件格式正确</li>
+      <li>外键字段请使用ID值</li>
+      <li>建议先导出模板再修改导入</li>
+    </ul>
+  </div>
+</div>
+{% endblock %}
