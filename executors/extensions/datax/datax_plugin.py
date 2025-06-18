@@ -990,9 +990,9 @@ class Writer:
         if self.settings.get("execute_way") == "all":
             where = f"{self.task.update_column}<'{self.settings.get('today').strftime('%Y-%m-%d 00:00:00')}'"
         elif self.settings.get("execute_way") == "update":
-            where = f"{self.task.update_column} between '{self.settings.get('yesterday').strftime('%Y-%m-%d 00:00:00')}' and '{self.settings.get('today').strftime('%Y-%m-%d 00:00:00')}'"
+            where = f"{self.task.update_column} >= '{self.settings.get('yesterday').strftime('%Y-%m-%d 00:00:00')}' and {self.task.update_column}< '{self.settings.get('today').strftime('%Y-%m-%d 00:00:00')}'"
         elif self.settings.get("execute_way") == "other":
-            where = f"{self.task.update_column} between '{self.settings.get('start_time')}' and '{self.settings.get('end_time')}'"
+            where = f"{self.task.update_column} >= '{self.settings.get('start_time')}' and {self.task.update_column}< '{self.settings.get('end_time')}'"
         else:
             assert (
                 False

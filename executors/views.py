@@ -81,24 +81,67 @@ def check_logs_and_retry():
 # 日志检查
 def check_logs():
     try:
-        # 查询出当天失败日志
         today_start = datetime.now().date()
-        # 根据项目每日统计情况，发送钉钉消息
         projects = Project.objects.filter(is_active=True)
-        msg=f"### 每日项目执行情况统计 \n #### 日期：{today_start} \n | 项目名称 | 执行次数 | 失败次数 | 成功率 |\n | --- | --- | --- | --- |\n"
+        msg = f"""### 每日项目执行情况统计
+#### 日期：{today_start}
+✅ : 成功 ❌ : 失败 ⏳ : 执行中  💾 : 备份 ⏸️ : 停止
+
+"""
+        
         for project in projects:
-            # 获取今天的日志
             today_logs = Log.objects.filter(
                 task__project=project,
                 created_at__date=today_start,
             )
-            # 统计执行次数和失败次数
-            total_executions = today_logs.count()
-            failed_executions = today_logs.filter(complit_state=0).count()
-            # 计算成功率
-            success_rate = (total_executions - failed_executions) / total_executions * 100 if total_executions > 0 else 0
-            # 构建消息
-            msg += f"| {project.name} | {total_executions} | {failed_executions} | {success_rate:.2f}% |\n"
+            
+            # 统计各状态任务数量
+            status_stats = {
+                'success': today_logs.filter(complit_state=1).count(),
+                'fail': today_logs.filter(complit_state=0).count(),
+                'process': today_logs.filter(complit_state=2).count(),
+                'bak': today_logs.filter(complit_state=3).count(),
+                'stopped': today_logs.filter(complit_state=4).count()
+            }
+            
+            # 计算耗时
+            duration = ""
+            if today_logs.exists():
+                start_time = today_logs.earliest('created_at').created_at
+                end_time = today_logs.latest('updated_at').updated_at
+                duration = str(end_time - start_time).split('.')[0]  # 去除毫秒部分
+            
+            # 判断项目是否完成
+            is_completed = status_stats['process'] == 0 and status_stats['fail'] == 0
+            
+            msg += f"""**{project.name}**
+- ✅ : {status_stats['success']} ❌ : {status_stats['fail']} ⏳ : {status_stats['process']}  💾 : {status_stats['bak']} ⏸️ : {status_stats['stopped']}
+- ⏱️ **总耗时**: {duration if duration else "无数据"}
+- 🏁 **状态**: {"已完成" if is_completed else "进行中/有失败"}
+\n"""
+        # 查询出当天失败日志
+        # today_start = datetime.now().date()
+        # # 根据项目每日统计情况，发送钉钉消息
+        # projects = Project.objects.filter(is_active=True)
+        # msg=f"### 每日项目执行情况统计 \n #### 日期：{today_start} \n | 项目名称 | 执行次数 | 失败次数 | 成功率 | 开始时间 | 结束时间 |\n | --- | --- | --- | --- | --- | --- |\n"
+        
+        # for project in projects:
+        #     # 获取今天的日志
+        #     today_logs = Log.objects.filter(
+        #         task__project=project,
+        #         created_at__date=today_start,
+        #     )
+        #     # 统计执行次数和失败次数
+        #     total_executions = today_logs.count()
+        #     # 执行中
+        #     failed_executions = today_logs.filter(complit_state=0).count()
+        #     start_time = today_logs.earliest('created_at').created_at if today_logs.exists() else ''
+        #     end_time = today_logs.latest('created_at').created_at if today_logs.exists() else ''
+
+        #     # 计算成功率
+        #     success_rate = (total_executions - failed_executions) / total_executions * 100 if total_executions > 0 else 0
+        #     # 构建消息
+        #     msg += f"| {project.name} | {total_executions} | {failed_executions} | {success_rate:.2f}% | {start_time} | {end_time} |\n"
         # 默认通知
         notification=Notification.objects.get(name='默认')
         AlertFactory(notification,'日常任务执行情况统计').send_custom_message(msg)
@@ -109,7 +152,7 @@ def check_logs():
 # 备份除日志外的所有表数据为sql文件
 def backup_data():
     from django.apps import apps 
-    
+    import shutil
     try:
         # 获取所有表名
         tables = apps.get_models()
@@ -126,6 +169,13 @@ def backup_data():
         python_path=config.get('PYTHON_BIN_PATH')
         os.system(f'{python_path} {project_path}/manage.py dumpdata --exclude executors.log --exclude executors.metadatatable > {backup_file}')
         logger.info(f'Backup of executors completed.')
+        # 删除七天前备份目录
+        seven_days_ago = datetime.now() - timedelta(days=7)
+        for dir in os.listdir(os.path.dirname(backup_dir)):
+            dir_path = os.path.join(os.path.dirname(backup_dir), dir)
+            if dir < seven_days_ago.strftime('%Y-%m-%d') and os.path.isdir(dir_path):
+                shutil.rmtree(dir_path)  # 使用shutil.rmtree删除非空目录
+                logger.info(f'Deleted old backup directory: {dir_path}')
     except Exception as e:
         logger.exception(e)
 
