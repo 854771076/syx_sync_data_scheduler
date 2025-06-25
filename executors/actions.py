@@ -225,7 +225,7 @@ disable.short_description = "禁用"
 class ConfigForm(forms.Form):
     execute_way = forms.ChoiceField(
         label='执行方式',
-        choices=[('update', '增量更新'), ('all', '全量同步'), ('action', '执行JSON'),('other', '其他')]
+        choices=[('update', '增量更新'), ('all', '全量同步'), ('action', '执行自定义JSON'),('other', '其他')]
     )
     start_time = forms.DateTimeField(
         label='开始时间',

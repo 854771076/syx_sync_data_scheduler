@@ -94,14 +94,15 @@ def check_logs():
                 task__project=project,
                 created_at__date=today_start,
             )
-            
+            total_tasks = Task.objects.filter(project=project,is_active=True).count()
             # 统计各状态任务数量
             status_stats = {
                 'success': today_logs.filter(complit_state=1).count(),
                 'fail': today_logs.filter(complit_state=0).count(),
                 'process': today_logs.filter(complit_state=2).count(),
                 'bak': today_logs.filter(complit_state=3).count(),
-                'stopped': today_logs.filter(complit_state=4).count()
+                'stopped': today_logs.filter(complit_state=4).count(),
+                'total': total_tasks,
             }
             
             # 计算耗时
@@ -112,12 +113,20 @@ def check_logs():
                 duration = str(end_time - start_time).split('.')[0]  # 去除毫秒部分
             
             # 判断项目是否完成
-            is_completed = status_stats['process'] == 0 and status_stats['fail'] == 0
-            
+            if status_stats['success'] == status_stats['total'] :
+                status='已完成'
+            elif status_stats['process'] > 0 or status_stats['fail'] > 0:
+                status='进行中/有失败'
+            elif status_stats['stopped'] > 0:
+                status='有停止'
+            elif status_stats['total'] > 0 and today_logs.count()==0:
+                status='未执行'
             msg += f"""**{project.name}**
+
 - ✅ : {status_stats['success']} ❌ : {status_stats['fail']} ⏳ : {status_stats['process']}  💾 : {status_stats['bak']} ⏸️ : {status_stats['stopped']}
-- ⏱️ **总耗时**: {duration if duration else "无数据"}
-- 🏁 **状态**: {"已完成" if is_completed else "进行中/有失败"}
+- 🔢 **总任务数**: **{status_stats['total']}**
+- ⏱️ **总耗时**: **{duration if duration else "无数据"}**
+- 🏁 **状态**: **{status}**
 \n"""
         # 查询出当天失败日志
         # today_start = datetime.now().date()
@@ -170,23 +179,30 @@ def backup_data():
         os.system(f'{python_path} {project_path}/manage.py dumpdata --exclude executors.log --exclude executors.metadatatable > {backup_file}')
         logger.info(f'Backup of executors completed.')
         # 删除七天前备份目录
-        seven_days_ago = datetime.now() - timedelta(days=7)
+        days_ago = datetime.now() - timedelta(days=30)
         for dir in os.listdir(os.path.dirname(backup_dir)):
             dir_path = os.path.join(os.path.dirname(backup_dir), dir)
-            if dir < seven_days_ago.strftime('%Y-%m-%d') and os.path.isdir(dir_path):
+            if dir < days_ago.strftime('%Y-%m-%d') and os.path.isdir(dir_path):
                 shutil.rmtree(dir_path)  # 使用shutil.rmtree删除非空目录
                 logger.info(f'Deleted old backup directory: {dir_path}')
     except Exception as e:
         logger.exception(e)
 
-#删除七天前所有成功的日志
+#删除30天前所有成功的日志
 def delete_old_logs():
+    import shutil
     try:
-        # 计算7天前的日期
-        seven_days_ago = datetime.now() - timedelta(days=7)
-        # 删除7天前的成功日志
-        Log.objects.filter(complit_state=1, created_at__lt=seven_days_ago).delete()
-        
+        # 计算30天前的日期
+        days_ago = datetime.now() - timedelta(days=30)
+        # 删除30天前的成功日志
+        Log.objects.filter(complit_state=1, created_at__lt=days_ago).delete()
+        # 删除30天前的本地日志目录
+        log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),'static', 'logs')
+        for dir in os.listdir(log_dir):
+            dir_path = os.path.join(log_dir, dir)
+            if dir < days_ago.strftime('%Y%m%d') and os.path.isdir(dir_path):
+                shutil.rmtree(dir_path)  # 使用shutil.rmtree删除非空目录
+                logger.info(f'Deleted old backup directory: {dir_path}')
         logger.info('Old logs deleted successfully.')
     except Exception as e:
         logger.exception(e)
@@ -233,7 +249,7 @@ def init_scheduler_task():
         delete_old_logs,
         # 每天执行一次
         trigger=CronTrigger.from_crontab('0 22 * * *'),
-        id='删除七天前成功的日志', 
+        id='删除30天前成功的日志', 
         replace_existing=True,
         misfire_grace_time=3600
     )

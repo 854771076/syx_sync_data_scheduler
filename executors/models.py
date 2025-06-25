@@ -217,6 +217,20 @@ class TaskLogDependency(models.Model):
     class Meta:
         verbose_name = '任务依赖表'
         verbose_name_plural = verbose_name
+class Script(models.Model):
+    """自定义脚本模型"""
+    name = models.CharField(max_length=255, verbose_name="脚本名称", db_index=True)
+    description = models.TextField(verbose_name="脚本描述", null=True, blank=True)
+    content = models.TextField(verbose_name="脚本内容",help_text='''占位符有：${source_db}\n${source_table}\n${target_db}\n${target_table}\n${partition_date}\n${today}\n${yesterday}\n${start_time}\n${end_time}\n${execute_way}''')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="更新时间")
+
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        verbose_name = '自定义脚本'
+        verbose_name_plural = verbose_name
 class Task(models.Model):
     project = models.ForeignKey(Project, on_delete=models.CASCADE, verbose_name="关联项目")
     data_source =  models.ForeignKey(DataSource, related_name='source_tasks', on_delete=models.SET_NULL, verbose_name="源数据源", null=True, blank=True)
@@ -243,14 +257,15 @@ class Task(models.Model):
     is_add_sync_time = models.BooleanField(default=False, verbose_name="是否添加同步时间字段")
     update_column = models.CharField(max_length=255, null=True, blank=True, verbose_name="更新字段", default="create_time")
     # 启动参数配置
-    config = models.JSONField(verbose_name='启动参数配置,{"jvm_options": "-Xms5g -Xmx10g","session":[],"preSql":[],"compress":"NONE","fieldDelimiter":"\\u0001","fileType":"text"或"orc","SPARK_CONF":"--driver-memory  4G  --executor-memory 10G   --num-executors 5 --executor-cores 2"}', default=dict, null=True, blank=True)
+    config = models.JSONField(verbose_name='启动参数配置',help_text='{"jvm_options": "-Xms5g -Xmx10g","session":[],"preSql":[],"compress":"NONE","fieldDelimiter":"\\u0001","fileType":"text"或"orc","SPARK_CONF":"--driver-memory  4G  --executor-memory 10G   --num-executors 5 --executor-cores 2","SPARK_MASTER":"local/yarn"}', default=dict, null=True, blank=True)
     datax_json=models.JSONField(verbose_name="最新DataX任务JSON",default=dict,null=True,blank=True)
     spark_code=models.TextField(verbose_name="最新Spark任务代码",default="",null=True,blank=True)
-    is_custom_script=models.BooleanField(default=False, verbose_name="是否自定义脚本(启用则不会再生成脚本)",help_text='''占位符有：${source_db}\n${source_table}\n${target_db}\n${target_table}\n${partition_date}\n${today}\n${yesterday}\n${start_time}\n${end_time}\n${execute_way}''')
+    is_custom_script=models.BooleanField(default=False, verbose_name="是否自定义脚本")
     # 脚本日志依赖
     task_log_dependency = models.ForeignKey(TaskLogDependency, on_delete=models.SET_NULL, verbose_name="脚本日志依赖", null=True, blank=True,
         db_constraint=False)
-
+    # 新增自定义脚本关联
+    custom_script = models.ForeignKey(Script, on_delete=models.SET_NULL, verbose_name="关联自定义脚本", null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="更新时间")
     @property

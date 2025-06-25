@@ -170,7 +170,12 @@ SIMPLEUI_CONFIG = {
                  {
                  'name': '任务依赖',
                  'url': '/admin/executors/tasklogdependency/', 
-                 }
+                 },
+                 {
+                 'name': '自定义脚本',
+                 'url': '/admin/executors/script/', 
+                 },
+
              ]
          },
          {

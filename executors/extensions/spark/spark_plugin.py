@@ -304,10 +304,10 @@ class SparkPlugin(BasePlugin):
             f"[spark_plugin]:init SparkPlugin with task {task.id},config={config},settings={settings}"
         )
         self.task = task
-        self.output_dir = Path(__file__).parent.parent.parent / "static" / "spark_output"
-        self.logs_dir = Path(__file__).parent.parent.parent / "static"/ "spark_logs"
-        self.logs_dir.mkdir(exist_ok=True)
-        self.output_dir.mkdir(exist_ok=True)
+        self.output_dir = Path(__file__).parent.parent.parent / "static" / "output"
+        self.logs_dir = Path(__file__).parent.parent.parent / "static"/ "logs"
+        self.logs_dir.mkdir(exist_ok=True,parents=True)
+        self.output_dir.mkdir(exist_ok=True,parents=True)
         self.config = config
         self.settings = settings
         self.spark_conf = self.task.config.get(
@@ -377,22 +377,26 @@ class SparkPlugin(BasePlugin):
     def generate_config(self):
         if not self.task.is_custom_script:
             code = self.generate_code()
-            self.task.spark_code = code
-            self.task.save()
+            
         else:
+            # 是否分表
+            is_split=self.task.split_config.db_split or self.task.split_config.tb_split or self.task.split_config.tb_time_suffix
             code = (
-                self.task.spark_code
+                self.task.custom_script.content
                 .replace("${source_db}", self.task.source_db)
                 .replace("${source_table}", self.task.source_table)
                 .replace("${target_db}", self.task.target_db)
                 .replace("${target_table}", self.task.target_table)
                 .replace("${partition_date}", self.settings.get("partition_date",""))
-                .replace("${today}", self.settings.get("today").strftime("%Y-%m-%d"),"")
-                .replace("${yesterday}", self.settings.get("yesterday").strftime("%Y-%m-%d"),"")
-                .replace("${start_time}", self.settings.get("start_time"),"")
-                .replace("${end_time}", self.settings.get("end_time"),"")
-                .replace("${execute_way}", self.settings.get("execute_way"),"")
+                .replace("${today}", self.settings.get("today","").strftime("%Y-%m-%d"))
+                .replace("${yesterday}", self.settings.get("yesterday","").strftime("%Y-%m-%d"))
+                .replace("${start_time}", str(self.settings.get("start_time","")))
+                .replace("${end_time}", str(self.settings.get("end_time","")))
+                .replace("${is_split}", str(is_split))
+                .replace("${execute_way}", self.settings.get("execute_way",""))
             )
+        self.task.spark_code = code
+        self.task.save()
         code_path = self.output_dir / f"{self.task.id}.py"
         with open(code_path, "w", encoding="utf-8") as f:
             f.write(code)
@@ -486,16 +490,16 @@ class SparkPlugin(BasePlugin):
         执行 Spark 任务。
         """
         try:
+            start_time=datetime.now()
             pid = threading.get_ident()
-            partition_path=cls.logs_dir/cls.settings.get('partition_date')
-            partition_path.mkdir(exist_ok=True)
+            partition_path=cls.logs_dir/cls.settings.get('partition_date')/cls.settings.get('execute_way')
+            partition_path.mkdir(exist_ok=True,parents=True)
             if retry:
                 config_path = cls.output_dir / f"{cls.task.id}_retry.py"
                 log_path = partition_path / f"{cls.task.id}_retry.log"
             else:
                 config_path = cls.output_dir / f"{cls.task.id}.py"
                 log_path = partition_path / f"{cls.task.id}.log"
-            start_time=datetime.now()
             # 判断系统
             if cls.master.find('yarn')!=-1:
                 command = f'export HADOOP_USER_NAME={cls.task.project.tenant.name}&&export PYSPARK_PYTHON="/home/anaconda3/bin/python3"&&spark-submit    --master yarn  --queue {cls.task.project.tenant.queue} --jars $(echo {cls.jars_dir}/*.jar | tr " " ",") {cls.spark_conf} {config_path} > {log_path} 2>&1'

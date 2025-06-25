@@ -149,10 +149,10 @@ class DataXPlugin(BasePlugin):
             f"[datax_plugin]:init DataXPlugin with task {task.id},config={config},settings={settings}"
         )
         self.task = task
-        self.output_dir = Path(__file__).parent.parent.parent / "static" / "datax_output"
-        self.logs_dir = Path(__file__).parent.parent.parent / "static"/ "datax_logs"
-        self.logs_dir.mkdir(exist_ok=True)
-        self.output_dir.mkdir(exist_ok=True)
+        self.output_dir = Path(__file__).parent.parent.parent / "static" / "output"
+        self.logs_dir = Path(__file__).parent.parent.parent / "static"/ "logs"
+        self.logs_dir.mkdir(exist_ok=True,parents=True)
+        self.output_dir.mkdir(exist_ok=True,parents=True)
         self.config = config
         self.settings = settings
         self.jvm_options = self.task.config.get(
@@ -228,13 +228,9 @@ class DataXPlugin(BasePlugin):
                 },
             }
 
-            self.task.datax_json = config
-            self.task.save()
-            # 读取任务中的json
-            config = self.task.datax_json
         else:
             # 读取任务中的json
-            config = self.task.datax_json
+            config = self.task.custom_script.content
             # 替换配置中的变量
             today=self.settings.get("today")
             if not today:
@@ -246,6 +242,8 @@ class DataXPlugin(BasePlugin):
                 yesterday=''
             else:
                 yesterday=yesterday.strftime("%Y-%m-%d")
+            is_split=self.task.split_config.db_split or self.task.split_config.tb_split or self.task.split_config.tb_time_suffix
+            
             config = json.loads(
                 json.dumps(config)
                 .replace("${source_db}", self.task.source_db)
@@ -255,11 +253,13 @@ class DataXPlugin(BasePlugin):
                 .replace("${partition_date}",self.settings.get("partition_date") if self.settings.get("partition_date") else '')
                 .replace("${today}", today)
                 .replace("${yesterday}", yesterday)
-                .replace("${start_time}", self.settings.get("start_time") if self.settings.get("start_time") else '')
-                .replace("${end_time}",self.settings.get("end_time") if  self.settings.get("end_time") else '')
+                .replace("${start_time}", str(self.settings.get("start_time")) if self.settings.get("start_time") else '')
+                .replace("${end_time}",str(self.settings.get("end_time")) if  self.settings.get("end_time") else '')
                 .replace("${execute_way}",self.settings.get("execute_way") if  self.settings.get("execute_way") else '')
+                .replace("${is_split}", str(is_split))
             )
-        
+        self.task.datax_json = config
+        self.task.save()
         config_path = self.output_dir / f"{self.task.id}.json"
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(config, f, ensure_ascii=False, indent=4)
@@ -348,15 +348,16 @@ class DataXPlugin(BasePlugin):
         执行 DataX 任务。
         """
         try:
-            partition_path=cls.logs_dir/cls.settings.get('partition_date')
-            partition_path.mkdir(exist_ok=True)
+            start_time=datetime.now()
+            partition_path=cls.logs_dir/cls.settings.get('partition_date')/cls.settings.get('execute_way')
+            partition_path.mkdir(exist_ok=True,parents=True)
             if retry:
                 config_path = cls.output_dir / f"{cls.task.id}_retry.json"
                 log_path = partition_path / f"{cls.task.id}_retry.log"
             else:
                 config_path = cls.output_dir / f"{cls.task.id}.json"
                 log_path = partition_path / f"{cls.task.id}.log"
-            start_time=datetime.now()
+            
             # 判断系统
             if cls.config.get('ENV')=='prod':
                 DATAX_BIN_PATH=cls.config.get('DATAX_BIN_PATH')

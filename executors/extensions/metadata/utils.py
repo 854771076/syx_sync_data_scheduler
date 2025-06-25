@@ -28,8 +28,10 @@ class DatabaseTableHandler:
         source_columns=get_table_schema_by_config(config,task.data_source,task.source_db,task.source_table,tables)
         target_columns=[]
         sync_time_column=task.sync_time_column or 'cdc_sync_date'
+        # 排除不需要字段
+        exclude_columns=task.exclude_columns or ''
         for f in source_columns:
-            if task.partition_column != f['name'] and sync_time_column != f['name']:
+            if f['name'] not in exclude_columns:
                 target_columns.append({
                     'name': f['name'],
                     'type': DataxTypes.convert_type(task.data_source.type,task.data_target.type,f['type']),

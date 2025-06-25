@@ -265,7 +265,7 @@ class TaskAdmin(admin.ModelAdmin):
         }),
         ('高级配置', {
             'classes': ('collapse',),
-            'fields': ('is_custom_script','datax_json','spark_code','config')
+            'fields': ('is_custom_script','custom_script','datax_json','spark_code','config')
         }),
         ('系统信息', {
             'classes': ('collapse','readonly'),
@@ -447,15 +447,7 @@ class LogAdmin(admin.ModelAdmin):
         return custom_urls + urls
 
     def log_file_view(self, request, task_id, partition_date, execute_way):
-        log = Log.objects.get(task__id=task_id, partition_date=partition_date, execute_way=execute_way)
-        
-        # 获取实际日志路径
-        if log.task.project.engine == 'datax':
-            log_path = f"datax_logs/{partition_date}/{task_id}"
-        elif log.task.project.engine =='spark':
-            log_path = f"spark_logs/{partition_date}/{task_id}"
-        else:
-            log_path = f"logs/{partition_date}/{task_id}"   
+        log_path = f"logs/{partition_date}/{execute_way}/{task_id}"   
         
         if execute_way == 'retry':
             full_path = self.static_path/Path(f"{log_path}_retry.log")
@@ -684,4 +676,21 @@ class TaskLogDependencyAdmin(admin.ModelAdmin):
                 )
             }
         )
+    )
+@admin.register(Script)
+class ScriptAdmin(admin.ModelAdmin):
+    list_display = ('id', 'name', 'description', 'created_at', 'updated_at')
+    search_fields = ('name', 'description')
+    list_filter = ('created_at',)
+    list_display_links = ('id', 'name')
+    ordering = ('-created_at', '-updated_at')
+    readonly_fields = ('created_at', 'updated_at')
+    fieldsets = (
+        ('基础信息', {
+            'fields': ('name', 'description', 'content')
+        }),
+        ('系统信息', {
+            'classes': ('collapse',),
+            'fields': ('created_at', 'updated_at')
+        })
     )
