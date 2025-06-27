@@ -10,3 +10,4 @@ def AlertFactory(notification,*args,**kwargs):
     for cls in subclasses:
         if cls.name == notification.engine:
             return cls(notification,*args,**kwargs)
+    return BaseAlert(notification,*args,**kwargs)

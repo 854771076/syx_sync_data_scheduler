@@ -157,7 +157,7 @@ class DataXPlugin(BasePlugin):
         self.settings = settings
         self.jvm_options = self.task.config.get(
             "jvm_options",
-            settings.get("jvm_options", self.config.get("DATAX_JVM_OPTIONS", "")),
+            settings.get("DATAX_JVM_OPTIONS", self.config.get("DATAX_JVM_OPTIONS", "")),
         )
         self.source = self.task.data_source
         self.target = self.task.data_target
@@ -230,7 +230,11 @@ class DataXPlugin(BasePlugin):
 
         else:
             # 读取任务中的json
-            config = self.task.custom_script.content
+            try:
+                config = json.loads(self.task.custom_script.content)
+            except Exception as e:
+                raise ValueError(f"[datax_plugin]:自定义JSON格式错误[{e}]")
+
             # 替换配置中的变量
             today=self.settings.get("today")
             if not today:

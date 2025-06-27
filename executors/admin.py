@@ -464,12 +464,7 @@ class LogAdmin(admin.ModelAdmin):
 
     def log_detail_view(self, request, task_id, partition_date,execute_way):
         log = Log.objects.get(task__id=task_id, partition_date=partition_date,execute_way=execute_way)
-        if log.task.project.engine == 'datax':
-            log_path = f"datax_logs/{partition_date}/{task_id}"
-        elif log.task.project.engine =='spark':
-            log_path = f"spark_logs/{partition_date}/{task_id}"
-        else:
-            log_path = f"logs/{partition_date}/{task_id}"   
+        log_path = f"logs/{partition_date}/{execute_way}/{task_id}" 
         
         if execute_way == 'retry':
             full_path = self.static_path/Path(f"{log_path}_retry.log")

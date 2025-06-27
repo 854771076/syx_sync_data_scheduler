@@ -94,6 +94,7 @@ def check_logs():
                 task__project=project,
                 created_at__date=today_start,
             )
+
             total_tasks = Task.objects.filter(project=project,is_active=True).count()
             # 统计各状态任务数量
             status_stats = {
@@ -113,7 +114,7 @@ def check_logs():
                 duration = str(end_time - start_time).split('.')[0]  # 去除毫秒部分
             
             # 判断项目是否完成
-            if status_stats['success'] == status_stats['total'] :
+            if status_stats['success'] >= status_stats['total'] :
                 status='已完成'
             elif status_stats['process'] > 0 or status_stats['fail'] > 0:
                 status='进行中/有失败'
