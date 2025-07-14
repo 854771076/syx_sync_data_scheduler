@@ -28,7 +28,7 @@ load_dotenv()
 scheduler = BackgroundScheduler({
     'apscheduler.executors.default': {
         'class': 'apscheduler.executors.pool:ThreadPoolExecutor',
-        'max_workers': int(os.environ.get('SCHEDULER_MAX_WORKERS', 100))
+        'max_workers': int(os.environ.get('SCHEDULER_MAX_WORKERS', 1000))
     }
 })
 
@@ -226,17 +226,19 @@ def init_scheduler_task():
             trigger=trigger,
             id=f"datax_task_{p.name}",
             replace_existing=True,
-            misfire_grace_time=3600  # 允许3600秒的容错时间
+            max_instances=10,
+            misfire_grace_time=60*60*24
         )
         logger.info(f"DataX scheduler started successfully for project {p.name}")
 
     # 检查日志
     scheduler.add_job(
         check_logs,
-        trigger=CronTrigger.from_crontab('30 9,12,23 * * *'),
+        trigger=CronTrigger.from_crontab('00 9,12,23 * * *'),
         id='检查日志', 
         replace_existing=True,
-        misfire_grace_time=3600
+        max_instances=10,
+            misfire_grace_time=60*60*24
     )
     scheduler.add_job(
         update_all_tasks_metadata,
@@ -244,23 +246,26 @@ def init_scheduler_task():
         trigger=CronTrigger.from_crontab('0 21 * * *'),
         id='更新元数据', 
         replace_existing=True,
-        misfire_grace_time=3600*12
+        max_instances=10,
+        misfire_grace_time=60*60*24
     )
-    scheduler.add_job(
-        delete_old_logs,
-        # 每天执行一次
-        trigger=CronTrigger.from_crontab('0 22 * * *'),
-        id='删除30天前成功的日志', 
-        replace_existing=True,
-        misfire_grace_time=3600
-    )
+    # scheduler.add_job(
+    #     delete_old_logs,
+    #     # 每天执行一次
+    #     trigger=CronTrigger.from_crontab('0 22 * * *'),
+    #     id='删除30天前成功的日志', 
+    #     replace_existing=True,
+    #     max_instances=10,
+    #     misfire_grace_time=60*60*24
+    # )
     scheduler.add_job(
         check_logs_and_retry,
         # 每天执行一次
         trigger=CronTrigger.from_crontab('0 6,18,23 * * *'),
         id='重试任务', 
         replace_existing=True,
-        misfire_grace_time=3600
+        max_instances=10,
+        misfire_grace_time=60*60*24
     )
     scheduler.add_job(
         backup_data,
@@ -268,7 +273,8 @@ def init_scheduler_task():
         trigger=CronTrigger.from_crontab('0 6 * * *'),
         id='备份数据', 
         replace_existing=True,
-        misfire_grace_time=3600
+        max_instances=10,
+        misfire_grace_time=60*60*24
     )
     logger.success("All DataX schedulers started successfully.")
 

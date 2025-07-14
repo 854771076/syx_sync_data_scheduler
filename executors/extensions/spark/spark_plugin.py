@@ -380,6 +380,17 @@ class SparkPlugin(BasePlugin):
             
         else:
             # 是否分表
+            # 连接
+            source={}
+            source['source_host']=self.source.connection.host
+            source['source_port']=self.source.connection.port
+            source['source_user']=self.source.connection.username
+            source['source_password']=self.source.connection.password
+            target={}
+            target['target_host']=self.target.connection.host
+            target['target_port']=self.target.connection.port
+            target['target_user']=self.target.connection.username
+            target['target_password']=self.target.connection.password
             is_split=self.task.split_config.db_split or self.task.split_config.tb_split or self.task.split_config.tb_time_suffix
             code = (
                 self.task.custom_script.content
@@ -394,7 +405,12 @@ class SparkPlugin(BasePlugin):
                 .replace("${end_time}", str(self.settings.get("end_time","")))
                 .replace("${is_split}", str(is_split))
                 .replace("${execute_way}", self.settings.get("execute_way",""))
+                .replace("${update_column}",self.task.update_column if self.task.update_column else '')
             )
+            for key,value in source.items():
+                code=code.replace(f"${{{key}}}",str(value))
+            for key,value in target.items():
+                code=code.replace(f"${{{key}}}",str(value))
         self.task.spark_code = code
         self.task.save()
         code_path = self.output_dir / f"{self.task.id}.py"

@@ -82,6 +82,7 @@ class DataSource(models.Model):
         ("redis", "Redis"),
         ("kafka", "Kafka"),
         ("mongo", "Mongo"),
+        ("es", "ES"),
     ]
     name = models.CharField(max_length=255, verbose_name="数据源名称", db_index=True)
     type = models.CharField(max_length=50, verbose_name="数据源类型", choices=TYPE_CHOICES)
@@ -182,7 +183,7 @@ class TaskLogDependency(models.Model):
         db_constraint=False)
     description = models.TextField(verbose_name="表描述", null=True, blank=True)
     # 执行查询语句模板，例如：SELECT * FROM {table} WHERE {condition}
-    query_template = models.TextField(verbose_name="查询语句模板({xxx}为变量,如select count(*) from t_mysql2ods_executed_all_sync_log where partition_date='{partition_date}' and complit_state=1)", null=True, blank=True)
+    query_template = models.TextField(verbose_name="查询语句模板({xxx}为变量)", null=True, blank=True,help_text='''变量有：partition_date|execute_way|source_db|source_table|target_db|target_table|id''')
     created_at = models.DateTimeField(verbose_name="创建时间", auto_now_add=True)
     updated_at = models.DateTimeField(verbose_name="更新时间", auto_now=True)
     def __str__(self):
@@ -221,7 +222,7 @@ class Script(models.Model):
     """自定义脚本模型"""
     name = models.CharField(max_length=255, verbose_name="脚本名称", db_index=True)
     description = models.TextField(verbose_name="脚本描述", null=True, blank=True)
-    content = models.TextField(verbose_name="脚本内容",help_text='''占位符有：${source_db}\n${source_table}\n${target_db}\n${target_table}\n${partition_date}\n${today}\n${yesterday}\n${start_time}\n${end_time}\n${execute_way}''')
+    content = models.TextField(verbose_name="脚本内容",help_text='''占位符有：${source_db}\n${source_table}\n${target_db}\n${target_table}\n${partition_date}\n${today}\n${yesterday}\n${start_time}\n${end_time}\n${execute_way}\n${reader_columns}\n${writer_columns}\n${update_column}''')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="更新时间")
 
@@ -257,7 +258,8 @@ class Task(models.Model):
     is_add_sync_time = models.BooleanField(default=False, verbose_name="是否添加同步时间字段")
     update_column = models.CharField(max_length=255, null=True, blank=True, verbose_name="更新字段", default="create_time")
     # 启动参数配置
-    config = models.JSONField(verbose_name='启动参数配置',help_text='{"jvm_options": "-Xms5g -Xmx10g","session":[],"preSql":[],"compress":"NONE","fieldDelimiter":"\\u0001","fileType":"text"或"orc","SPARK_CONF":"--driver-memory  4G  --executor-memory 10G   --num-executors 5 --executor-cores 2","SPARK_MASTER":"local/yarn"}', default=dict, null=True, blank=True)
+    config = models.JSONField(verbose_name='启动参数配置',help_text='{"jvm_options": "-Xms5g -Xmx10g","session":[],"preSql":[],"compress":"NONE","fieldDelimiter":"\\u0001","fileType":"text"或"orc","SPARK_CONF":"--driver-memory  4G  --executor-memory 10G   --num-executors 5 --executor-cores 2","SPARK_MASTER":"local/yarn","reader_config":{},"writer_config":{},"core",{},"settings":{}}', default=dict, null=True, blank=True)
+
     datax_json=models.JSONField(verbose_name="最新DataX任务JSON",default=dict,null=True,blank=True)
     spark_code=models.TextField(verbose_name="最新Spark任务代码",default="",null=True,blank=True)
     is_custom_script=models.BooleanField(default=False, verbose_name="是否自定义脚本")

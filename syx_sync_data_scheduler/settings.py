@@ -18,7 +18,9 @@ load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-
+# 从环境变量获取 EXPORTOR_ADMIN_TOKEN
+EXPORTOR_ADMIN_TOKEN = os.getenv('EXPORTOR_ADMIN_TOKEN')
+EXPORTOR_ADMIN_URL = os.getenv('EXPORTOR_ADMIN_URL')
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.1/howto/deployment/checklist/
@@ -78,6 +80,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'executors',
     'django_apscheduler',
+    'exportor'
 ]
 
 
@@ -124,7 +127,7 @@ SIMPLEUI_CONFIG = {
      'system_keep': False,
      
       # 用于菜单排序和过滤, 不填此字段为默认排序和全部显示。空列表[] 为全部不显示.
-     'menu_display': ['任务管理','配置管理','调度管理','通知管理','元数据管理', '权限认证'],
+     'menu_display': ['任务管理','配置管理','调度管理','通知管理','元数据管理', '权限认证','数据导出'],
      
      # 设置是否开启动态菜单, 默认为False. 如果开启, 则会在每次用户登陆时刷新展示菜单内容。
      # 一般建议关闭。
@@ -235,6 +238,40 @@ SIMPLEUI_CONFIG = {
                  
              ]
          },
+         {
+             'name': '数据导出',
+             'icon': 'fa fa-th-list',
+             'models': [
+                 {
+                   'name':'接口平台',
+                   'url':f'{EXPORTOR_ADMIN_URL}/doc.html',
+                 },
+                 {
+                   'name':"同步进度",
+                   'url': '/exportor/task-progress/',
+                 },
+                 {
+                 'name': '客户订阅列表',
+                 'url': '/admin/exportor/exportcustomersubscribe/',
+                 },
+                 {
+                 'name': '客户列表',
+                 'url': '/admin/exportor/exportcustomer/',
+                 },
+                 {
+                 'name': 'hdfs导出任务列表',
+                 'url': '/admin/exportor/exporthdfstask/',
+                 },
+                 {
+                 'name': 'hdfs导出文件列表',
+                 'url': '/admin/exportor/exporthdfsfile/',
+                 },
+                 {
+                 'name': '客户同步状态列表',
+                 'url': '/admin/exportor/exportcustomerhdfsfilesyncexec/',
+                 },
+             ]
+         }
      ]
  }
 WSGI_APPLICATION = "syx_sync_data_scheduler.wsgi.application"
@@ -253,8 +290,19 @@ DATABASES = {
         'PORT': int(os.getenv('DB_PORT')),
         'OPTIONS': {'charset': 'utf8mb4'},
     },
+    'exportor_db': {
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': os.getenv('EXPORTOR_DB_NAME'),  #recruit_info
+        'USER': os.getenv('EXPORTOR_DB_USER'),  # os.environ.get('DJANGO_MYSQL_USER')
+        'PASSWORD': os.getenv('EXPORTOR_DB_PASSWORD'),  # os.environ.get('DJANGO_MYSQL_PASSWORD')
+        'HOST': os.getenv('EXPORTOR_DB_HOST'),  # os.environ.get('DJANGO_MYSQL_HOST')
+        'PORT': int(os.getenv('EXPORTOR_DB_PORT')),
+        'OPTIONS': {'charset': 'utf8mb4'},
+    },
+
 }
 
+DATABASE_ROUTERS = ['syx_sync_data_scheduler.routers.ExportorRouter']
 # Password validation
 # https://docs.djangoproject.com/en/4.1/ref/settings/#auth-password-validators
 

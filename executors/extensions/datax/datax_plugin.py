@@ -216,9 +216,9 @@ class DataXPlugin(BasePlugin):
         """生成DataX配置文件"""
         if not self.task.is_custom_script:
             config = {
-                "core": json.loads(self.config.get("DATAX_CORE_SETTINGS")),
+                "core": self.task.config.get('core',json.loads(self.config.get("DATAX_CORE_SETTINGS"))),
                 "job": {
-                    "setting": json.loads(self.config.get("DATAX_SETTINGS")),
+                    "setting": self.task.config.get('settings',json.loads(self.config.get("DATAX_SETTINGS"))),
                     "content": [
                         {
                             "reader": self._get_reader_config(),
@@ -229,6 +229,21 @@ class DataXPlugin(BasePlugin):
             }
 
         else:
+            config_tmp = {
+                "core": self.task.config.get('core',json.loads(self.config.get("DATAX_CORE_SETTINGS"))),
+                "job": {
+                    "setting": self.task.config.get('settings',json.loads(self.config.get("DATAX_SETTINGS"))),
+                    "content": [
+                        {
+                            "reader": self._get_reader_config(),
+                            "writer": self._get_writer_config(),
+                        }
+                    ],
+                },
+            }
+            reader_columns=config_tmp["job"]["content"][0]["reader"]["parameter"]["column"]
+            writer_columns=config_tmp["job"]["content"][0]["writer"]["parameter"]["column"]
+            
             # 读取任务中的json
             try:
                 config = json.loads(self.task.custom_script.content)
@@ -246,9 +261,19 @@ class DataXPlugin(BasePlugin):
                 yesterday=''
             else:
                 yesterday=yesterday.strftime("%Y-%m-%d")
-            is_split=self.task.split_config.db_split or self.task.split_config.tb_split or self.task.split_config.tb_time_suffix
             
-            config = json.loads(
+            is_split=self.task.split_config.db_split or self.task.split_config.tb_split or self.task.split_config.tb_time_suffix
+            source={}
+            source['source_host']=self.source.connection.host
+            source['source_port']=self.source.connection.port
+            source['source_user']=self.source.connection.username
+            source['source_password']=self.source.connection.password
+            target={}
+            target['target_host']=self.target.connection.host
+            target['target_port']=self.target.connection.port
+            target['target_user']=self.target.connection.username
+            target['target_password']=self.target.connection.password
+            config = (
                 json.dumps(config)
                 .replace("${source_db}", self.task.source_db)
                 .replace("${source_table}", self.task.source_table)
@@ -261,7 +286,15 @@ class DataXPlugin(BasePlugin):
                 .replace("${end_time}",str(self.settings.get("end_time")) if  self.settings.get("end_time") else '')
                 .replace("${execute_way}",self.settings.get("execute_way") if  self.settings.get("execute_way") else '')
                 .replace("${is_split}", str(is_split))
+                .replace("${reader_columns}", str(reader_columns))
+                .replace("${writer_columns}", str(writer_columns))
+                .replace("${update_column}",self.task.update_column if self.task.update_column else '')
             )
+            for key,value in source.items():
+                config=config.replace(f"${{{key}}}",str(value))
+            for key,value in target.items():
+                config=config.replace(f"${{{key}}}",str(value))
+            config=json.loads(config)
         self.task.datax_json = config
         self.task.save()
         config_path = self.output_dir / f"{self.task.id}.json"
@@ -835,6 +868,7 @@ class Reader:
                 ],
             },
         }
+        reader_config["parameter"].update(self.task.config.get('reader_config',{}))
         return reader_config
     @staticmethod
     def hive2other(self: DataXPlugin):
@@ -863,19 +897,19 @@ class Reader:
             "nullFormat": "\\N",
             "defaultFS": self.source.connection.params.get("defaultFS"),
             "hadoopConfig":hadoopConfig,
-            "path": f"/user/hive/warehouse/%s.db/%s/{self.task.partition_column}=%s/*", 
+            "path": f"/user/hive/warehouse/%s.db/%s/{self.task.partition_column if self.task.partition_column else 'partition_date'}=%s/*", 
             "fileType": fileType,
             "fieldDelimiter": fieldDelimiter,
         }
         if compress!='NONE' and compress:
             reader_parameter["parameter"]["compress"]=compress
         if len(tables)>1:
-            if self.settings.get("execute_way") =='all' and self.task.is_partition:
-                reader_parameter["path"]=reader_parameter["path"]%(self.task.source_db,self.task.source_table+"*","*")
+            if self.settings.get("execute_way")=='all'  and self.task.is_partition:
+                reader_parameter["path"]==f"/user/hive/warehouse/{self.task.source_db}.db/{self.task.source_table}/{self.task.partition_column if self.task.partition_column else 'partition_date'}=*/db_id=*/tb_id=*/*"
             elif not self.task.is_partition:
                 reader_parameter["path"]=f"/user/hive/warehouse/{self.task.source_db}.db/{self.task.source_table}*/*"
             else:
-                reader_parameter["path"]=reader_parameter["path"]%(self.task.source_db,self.task.source_table+"*",)
+                reader_parameter["path"]==f"/user/hive/warehouse/{self.task.source_db}.db/{self.task.source_table}/{self.task.partition_column if self.task.partition_column else 'partition_date'}={self.settings.get('partition_date')}/db_id=*/tb_id=*/*"
         else:
             if self.settings.get("execute_way")=='all'  and self.task.is_partition:
                 reader_parameter["path"]=reader_parameter["path"]%(self.task.source_db,self.task.source_table,"*")
@@ -887,6 +921,7 @@ class Reader:
             "name": "hdfsreader",
             "parameter": reader_parameter
         }
+        reader_parameter["parameter"].update(self.task.config.get('reader_config',{}))
         return reader_parameter
     # hive2other
 class Writer:
@@ -930,6 +965,7 @@ class Writer:
             writer_config["parameter"][
                 "path"
             ] = f"/user/hive/warehouse/{self.task.target_db}.db/{self.task.target_table}"
+        writer_config["parameter"].update(self.task.config.get('writer_config',{}))
         return writer_config
 
     @staticmethod
@@ -983,6 +1019,7 @@ class Writer:
                 ],
             },
         }
+        writer_config["parameter"].update(self.task.config.get('writer_config',{}))
         return writer_config
     @staticmethod
     def other2starrocks(self: DataXPlugin):
@@ -1046,4 +1083,5 @@ class Writer:
                 ],
             },
         }
+        writer_config["parameter"].update(self.task.config.get('writer_config',{}))
         return writer_config

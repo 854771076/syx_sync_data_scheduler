@@ -50,15 +50,15 @@
 {% block content %}
 <div class="csv-import-container">
   <h1 class="csv-import-title">
-    <i class="fas fa-file-import"></i> 导入CSV数据
+    <i class="fas fa-file-import"></i> 导入数据
   </h1>
   
   <div class="csv-import-form">
     <form method="post" enctype="multipart/form-data">
       {% csrf_token %}
       <div class="file-input">
-        <label for="csv_file">选择CSV文件:</label>
-        <input type="file" name="csv_file" accept=".csv" required>
+        <label for="csv_file">选择文件:</label>
+        <input type="file" name="csv_file" accept=".xlsx" required>
       </div>
       <button type="submit" class="submit-button">
         <i class="fas fa-upload"></i> 开始导入
@@ -69,7 +69,7 @@
   <div class="csv-import-help">
     <p><strong>使用说明:</strong></p>
     <ul>
-      <li>请确保CSV文件格式正确</li>
+      <li>请确保EXCEL文件格式正确</li>
       <li>外键字段请使用ID值</li>
       <li>建议先导出模板再修改导入</li>
     </ul>

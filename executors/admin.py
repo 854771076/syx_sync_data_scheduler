@@ -9,6 +9,11 @@ import csv
 from django.db.models.fields.related import ForeignKey
 from io import TextIOWrapper
 import os
+import pandas as pd
+from openpyxl import Workbook
+from io import BytesIO
+from django.db.models.fields.json import JSONField
+import json
 import signal
 admin.site.site_header = '大数据调度管理后台'  # 设置header
 admin.site.site_title = '大数据调度管理后台'   # 设置title
@@ -66,75 +71,109 @@ class ProjectAdmin(admin.ModelAdmin):
     def export_as_csv(self, request, queryset):
         meta = self.model._meta
         field_names = [field.name for field in meta.fields]
-        
-        response = HttpResponse(content_type='text/csv')
-        response['Content-Disposition'] = f'attachment; filename={meta}.csv'
-        
-        writer = csv.writer(response)
-        writer.writerow(field_names)
+        data = []
+
         for obj in queryset:
-            row = []
+            row = {}
             for field in meta.fields:
                 value = getattr(obj, field.name)
                 if field.is_relation and not field.many_to_many:
                     # 处理外键关系，导出关联对象的ID
                     value = value.id if value else ''
-                row.append(str(value))
-            writer.writerow(row)
+                if isinstance(field, JSONField):
+                    value = json.dumps(value)
+                
+                else:
+                    value = value
+                row[field.name] = value
+            data.append(row)
+
+        df = pd.DataFrame(data, columns=field_names)
+
+        # 创建一个字节流对象
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, sheet_name='Sheet1', index=False)
+
+        output.seek(0)
+
+        response = HttpResponse(
+            output,
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = f'attachment; filename={meta}.xlsx'
         return response
-    export_as_csv.short_description = "导出选中项目为CSV"
+    export_as_csv.short_description = "导出选中项目"
     
     def import_csv(self, request):
         if request.method == "POST":
-            csv_file = request.FILES['csv_file']
-            if not csv_file.name.endswith('.csv'):
-                messages.error(request, '请上传CSV文件')
+            excel_file = request.FILES['csv_file']
+            if not excel_file.name.endswith(('.xlsx', '.xls')):
+                messages.error(request, '请上传 Excel 文件')
                 return
-            
-            encodings = ['utf-8', 'cp1252', 'gbk']  # 尝试的编码列表
-            success = False
-            
-            for encoding in encodings:
-                try:
-                    file_content = csv_file.read().decode(encoding)
-                    reader = csv.DictReader(file_content.splitlines())
-                    
-                    imported_count = 0
-                    for row in reader:
-                        # 处理外键关系
-                        for field in self.model._meta.fields:
-                            if isinstance(field, ForeignKey) and field.name in row and row[field.name]:
-                                related_model = field.related_model
-                                try:
-                                    row[field.name] = related_model.objects.get(id=row[field.name])
-                                except (related_model.DoesNotExist, ValueError):
-                                    row[field.name] = None
-                        
-                        # 如果row中有id字段则更新，否则创建新记录
-                        if row.get('id'):
-                            self.model.objects.update_or_create(
-                                id=row['id'],
-                                defaults=row
-                            )
-                        else:
-                            self.model.objects.create(**row)
-                        imported_count += 1
-                    
-                    messages.success(request, f'成功导入 {imported_count} 条数据')
-                    success = True
-                    break
-                    
-                except UnicodeDecodeError:
-                    continue  # 尝试下一种编码
-                except Exception as e:
-                    messages.error(request, f'导入失败(编码:{encoding}): {str(e)}')
-                    break
-            
-            if not success:
-                messages.error(request, '无法解析CSV文件，请检查文件编码或格式')
-        
+
+            try:
+                df = pd.read_excel(excel_file)
+                imported_count = 0
+
+                for _, row in df.iterrows():
+                    row_dict = row.to_dict()
+                    # 处理外键关系
+                    row_dict = self._handle_foreign_keys(row_dict)
+                    # 处理数值和 JSON 字段
+                    row_dict = self._handle_field_types(row_dict)
+
+                    # 如果 row 中有 id 字段则更新，否则创建新记录
+                    if row_dict.get('id'):
+                        self.model.objects.update_or_create(
+                            id=row_dict.get('id'),
+                            defaults=row_dict
+                        )
+                    else:
+                        self.model.objects.create(**row_dict)
+                    imported_count += 1
+
+                messages.success(request, f'成功导入 {imported_count} 条数据')
+            except Exception as e:
+                messages.error(request, f'导入失败: {str(e)}')
+
         return render(request, 'admin/csv_import.html')
-    import_csv.short_description = "导入CSV数据"
+
+    def _handle_foreign_keys(self, row):
+        """处理外键关系"""
+        for field in self.model._meta.fields:
+            if isinstance(field, ForeignKey) and field.name in row :
+                related_model = field.related_model
+                try:
+                    row[field.name] = related_model.objects.get(id=row[field.name])
+                except (related_model.DoesNotExist, ValueError):
+                    row[field.name] = None
+        return row
+
+    def _handle_field_types(self, row):
+        """处理数值和 JSON 字段"""
+        for field in self.model._meta.fields:
+            field_name = field.name
+            if field_name in row:
+                if not pd.notna(row[field_name]):
+                    row[field_name] = None
+                if field_name in row:
+                    value = row[field_name]
+                    try:
+                        # 尝试转换为整数
+                        row[field_name] = int(value)
+                    except (ValueError, TypeError):
+                        try:
+                            # 尝试转换为浮点数
+                            row[field_name] = float(value)
+                        except (ValueError, TypeError):
+                            try:
+                                # 尝试解析为 JSON
+                                row[field_name] = json.loads(str(value).replace('\\\\','\\'))
+                            except (json.JSONDecodeError, TypeError):
+                                pass
+        return row
+    import_csv.short_description = "导入数据"
     def get_urls(self):
         urls = super().get_urls()
         custom_urls = [
@@ -283,23 +322,38 @@ class TaskAdmin(admin.ModelAdmin):
     def export_as_csv(self, request, queryset):
         meta = self.model._meta
         field_names = [field.name for field in meta.fields]
-        
-        response = HttpResponse(content_type='text/csv')
-        response['Content-Disposition'] = f'attachment; filename={meta}.csv'
-        
-        writer = csv.writer(response)
-        writer.writerow(field_names)
+        data = []
+
         for obj in queryset:
-            row = []
+            row = {}
             for field in meta.fields:
                 value = getattr(obj, field.name)
                 if field.is_relation and not field.many_to_many:
                     # 处理外键关系，导出关联对象的ID
                     value = value.id if value else ''
-                row.append(str(value))
-            writer.writerow(row)
+                if isinstance(field, JSONField):
+                    value = json.dumps(value)
+                else:
+                    value = value
+                row[field.name] = value
+            data.append(row)
+
+        df = pd.DataFrame(data, columns=field_names)
+
+        # 创建一个字节流对象
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, sheet_name='Sheet1', index=False)
+
+        output.seek(0)
+
+        response = HttpResponse(
+            output,
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = f'attachment; filename={meta}.xlsx'
         return response
-    export_as_csv.short_description = "导出选中项目为CSV"
+    export_as_csv.short_description = "导出选中项目"
     change_list_template = 'admin/task_change_list.html'
     
     def changelist_view(self, request, extra_context=None):
@@ -308,55 +362,73 @@ class TaskAdmin(admin.ModelAdmin):
         return super().changelist_view(request, extra_context=extra_context)
     def import_csv(self, request):
         if request.method == "POST":
-            csv_file = request.FILES['csv_file']
-            if not csv_file.name.endswith('.csv'):
-                messages.error(request, '请上传CSV文件')
+            excel_file = request.FILES['csv_file']
+            if not excel_file.name.endswith(('.xlsx', '.xls')):
+                messages.error(request, '请上传 Excel 文件')
                 return
-            
-            encodings = ['utf-8', 'gbk']  # 尝试的编码列表
-            success = False
-            
-            for encoding in encodings:
-                try:
-                    file_content = csv_file.read().decode(encoding)
-                    reader = csv.DictReader(file_content.splitlines())
-                    
-                    imported_count = 0
-                    for row in reader:
-                        # 处理外键关系
-                        for field in self.model._meta.fields:
-                            if isinstance(field, ForeignKey) and field.name in row and row[field.name]:
-                                related_model = field.related_model
-                                try:
-                                    row[field.name] = related_model.objects.get(id=row[field.name])
-                                except (related_model.DoesNotExist, ValueError):
-                                    row[field.name] = None
-                        
-                        # 如果row中有id字段则更新，否则创建新记录
-                        if row.get('id'):
-                            self.model.objects.update_or_create(
-                                id=row['id'],
-                                defaults=row
-                            )
-                        else:
-                            self.model.objects.create(**row)
-                        imported_count += 1
-                    
-                    messages.success(request, f'成功导入 {imported_count} 条数据')
-                    success = True
-                    break
-                    
-                except UnicodeDecodeError:
-                    continue  # 尝试下一种编码
-                except Exception as e:
-                    messages.error(request, f'导入失败(编码:{encoding}): {str(e)}')
-                    break
-            
-            if not success:
-                messages.error(request, '无法解析CSV文件，请检查文件编码或格式')
-        
+
+            try:
+                df = pd.read_excel(excel_file)
+                imported_count = 0
+
+                for _, row in df.iterrows():
+                    row_dict = row.to_dict()
+                    # 处理外键关系
+                    row_dict = self._handle_foreign_keys(row_dict)
+                    # 处理数值和 JSON 字段
+                    row_dict = self._handle_field_types(row_dict)
+
+                    # 如果 row 中有 id 字段则更新，否则创建新记录
+                    if row_dict.get('id'):
+                        self.model.objects.update_or_create(
+                            id=row_dict.get('id'),
+                            defaults=row_dict
+                        )
+                    else:
+                        self.model.objects.create(**row_dict)
+                    imported_count += 1
+
+                messages.success(request, f'成功导入 {imported_count} 条数据')
+            except Exception as e:
+                messages.error(request, f'导入失败: {str(e)}')
+
         return render(request, 'admin/csv_import.html')
-    import_csv.short_description = "导入CSV数据"
+
+    def _handle_foreign_keys(self, row):
+        """处理外键关系"""
+        for field in self.model._meta.fields:
+            if isinstance(field, ForeignKey) and field.name in row :
+                related_model = field.related_model
+                try:
+                    row[field.name] = related_model.objects.get(id=row[field.name])
+                except (related_model.DoesNotExist, ValueError):
+                    row[field.name] = None
+        return row
+
+    def _handle_field_types(self, row):
+        """处理数值和 JSON 字段"""
+        for field in self.model._meta.fields:
+            field_name = field.name
+            if field_name in row:
+                if not pd.notna(row[field_name]):
+                    row[field_name] = None
+                if field_name in row:
+                    value = row[field_name]
+                    try:
+                        # 尝试转换为整数
+                        row[field_name] = int(value)
+                    except (ValueError, TypeError):
+                        try:
+                            # 尝试转换为浮点数
+                            row[field_name] = float(value)
+                        except (ValueError, TypeError):
+                            try:
+                                # 尝试解析为 JSON
+                                row[field_name] = json.loads(str(value).replace('\\\\','\\'))
+                            except (json.JSONDecodeError, TypeError):
+                                pass
+        return row
+    import_csv.short_description = "导入数据"
     def get_urls(self):
         urls = super().get_urls()
         custom_urls = [
